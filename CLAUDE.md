@@ -91,6 +91,19 @@ npx openapi-typescript docs/openapi.yaml -o src/generated/api-types.ts
 
 ## Layout
 
-`src/` is the current NestJS scaffold (`app.module.ts`, `main.ts`). The target module
-layout (PrismaModule, AuthModule, common guards, feature modules per router, `jobs/`,
-`integrations/{mail,storage,payment}/`) is described in `docs/architecture.md` §7.
+```
+src/
+  main.ts                # bootstrap: bufferLogs + Pino, ValidationPipe, Scalar (non-prod)
+  app.module.ts          # root: Config, Logger, Prisma, Cache, Auth
+  config/                # env.validation (typed env) + logger.config (pino options)
+  prisma/                # global PrismaModule + PrismaService
+  cache/                 # global Redis CacheModule (tix-ist namespace)
+  auth/                  # register/login/refresh/logout, JWT strategies, guards, cached AuthUserService
+  common/                # @Public()/@CurrentUser() decorators + JwtAuthGuard
+  openapi/               # setupOpenApi() — Scalar reference + /openapi.json
+prisma/                  # schema.prisma + migrations/ (create-only; apply with yarn db:deploy)
+```
+
+Still to come (see `docs/architecture.md` §7): feature modules per router (`users`,
+`events`, `tickets`, …), `jobs/`, `integrations/{mail,storage,payment}/`, and the event/module
+RBAC guards under `common/`.
