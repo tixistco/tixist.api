@@ -3,9 +3,11 @@ import {
   IsEnum,
   IsInt,
   IsOptional,
+  IsString,
   Matches,
   Max,
   Min,
+  MinLength,
   validateSync,
 } from 'class-validator';
 
@@ -44,6 +46,35 @@ export class EnvironmentVariables {
     message: 'DATABASE_URL must be a postgres(ql):// connection string',
   })
   DATABASE_URL!: string;
+
+  // --- Auth (JWT) ---
+  @IsString()
+  @MinLength(16)
+  JWT_ACCESS_SECRET!: string;
+
+  @IsString()
+  @MinLength(16)
+  JWT_REFRESH_SECRET!: string;
+
+  @IsOptional()
+  @IsString()
+  JWT_ACCESS_TTL: string = '15m';
+
+  @IsOptional()
+  @IsString()
+  JWT_REFRESH_TTL: string = '7d';
+
+  // --- Cache (Redis) ---
+  @Matches(/^rediss?:\/\/.+/, {
+    message: 'REDIS_URL must be a redis(s):// connection string',
+  })
+  REDIS_URL!: string;
+
+  // Seconds an auth user stays cached before re-reading from the DB.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  AUTH_CACHE_TTL: number = 60;
 }
 
 /**

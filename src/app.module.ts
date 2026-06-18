@@ -6,6 +6,8 @@ import { AppService } from './app.service';
 import { validate } from './config/env.validation';
 import { buildPinoOptions } from './config/logger.config';
 import { PrismaModule } from './prisma/prisma.module';
+import { CacheModule } from './cache/cache.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -23,6 +25,8 @@ import { PrismaModule } from './prisma/prisma.module';
       }),
     }),
     PrismaModule,
+    CacheModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

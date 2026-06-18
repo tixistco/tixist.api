@@ -16,8 +16,15 @@ that contract**, not improvised.
   (only `User` so far). `DATABASE_URL` is **composed** from `DB_*` parts via dotenv expansion
   (`expandVariables: true`); edit the parts, not the URL. After schema changes run
   `yarn db:migrate` (dev) and `yarn db:generate`.
-- **Status:** early build. Scaffold + design docs are in place; remaining feature modules and
-  auth are being implemented. Treat anything marked _(planned)_ in the docs as not-yet-wired.
+- **Auth (wired):** email+password register/login → JWT **access + refresh** (rotation;
+  refresh digest stored on `User`). JWT payloads are **PII-free** (`sub` only); identity is
+  resolved per request via `AuthUserService` from a **Redis read-through cache** (fail-open).
+  A **global `JwtAuthGuard`** protects everything; opt out with `@Public()`. Get the caller
+  with `@CurrentUser()`. Source in `src/auth/` + `src/common/{guards,decorators}`.
+- **Cache (wired):** global Redis `CacheModule` (`@nestjs/cache-manager` + `@keyv/redis`),
+  keys namespaced under `tix-ist` (see [[cache-global-prefix]] memory).
+- **Status:** early build. Scaffold + design docs are in place; remaining feature modules are
+  being implemented. Treat anything marked _(planned)_ in the docs as not-yet-wired.
 - **Source of truth for endpoints:** [`docs/openapi.yaml`](./docs/openapi.yaml) — 105 REST
   operations across 84 paths. Also see [`docs/data-model.md`](./docs/data-model.md) and
   [`docs/architecture.md`](./docs/architecture.md) (module decomposition, RBAC & request flows).

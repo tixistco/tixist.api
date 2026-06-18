@@ -21,6 +21,9 @@ model User {
   image         String?
   password      String? // bcrypt hash; null for not-yet-set / external identities
 
+  // SHA-256 digest of the current refresh token (single active session); null when logged out.
+  hashedRefreshToken String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
