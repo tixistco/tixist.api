@@ -1,0 +1,1528 @@
+openapi: 3.1.0
+info:
+  title: Tixist Standalone API
+  version: 0.1.0
+  description: |
+    REST contract for the standalone event-management API extracted from the
+    Next.js/tRPC application. Each tRPC procedure has been mapped to a
+    resource-oriented REST endpoint; non-CRUD actions use sub-paths
+    (e.g. `POST /events/{id}/archive`). This spec is the contract for the
+    NestJS implementation.
+
+    Authorization model:
+      - Bearer JWT identifies the user.
+      - Event-scoped routes require an ACTIVE TeamMember (owner or collaborator).
+      - Module-gated routes require the relevant module in the collaborator's
+        permissions (owners bypass). Modules: OVERVIEW, ATTENDEES, TICKETS,
+        SCHEDULE, SPEAKERS, CFP, COMMUNICATIONS, CHECKIN. SETTINGS is owner-only.
+      - Routes tagged `public` need no auth (event discovery, self-registration,
+        public CFP, ticket lookup).
+servers:
+  - url: https://api.tixist.example.com/v1
+    description: Production
+  - url: http://localhost:4000/v1
+    description: Local
+
+tags:
+  - name: Auth
+  - name: Users
+  - name: Events
+  - name: TicketTypes
+  - name: Registrations
+  - name: Tickets
+  - name: Attendees
+  - name: Schedule
+  - name: Speakers
+  - name: CFP
+  - name: Communications
+  - name: Team
+  - name: CheckIn
+  - name: Uploads
+  - name: Webhooks
+  - name: Jobs
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ───────────────────────── Auth ─────────────────────────
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 6 }
+                name: { type: string }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/User" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Authenticate with email + password, returns JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken: { type: string }
+                  user: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # ───────────────────────── Users (me) ─────────────────────────
+  /me:
+    get:
+      tags: [Users]
+      summary: Get current user's profile + stats
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/UserProfile" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    patch:
+      tags: [Users]
+      summary: Update current user's profile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                image: { type: string, format: uri }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/User" } } } }
+    delete:
+      tags: [Users]
+      summary: Delete account (must own no active events)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmation]
+              properties:
+                confirmation: { type: string, enum: [DELETE] }
+      responses:
+        "204": { description: Deleted }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /me/change-password:
+    post:
+      tags: [Users]
+      summary: Change password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string, minLength: 6 }
+      responses:
+        "204": { description: Changed }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /me/events-summary:
+    get:
+      tags: [Users]
+      summary: Summary of the user's events and attendee counts
+      responses:
+        "200": { description: OK }
+
+  /me/memberships:
+    get:
+      tags: [Users, Team]
+      summary: All active team memberships for the current user
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/TeamMember" } } } } }
+
+  # ───────────────────────── Events ─────────────────────────
+  /events:
+    get:
+      tags: [Events]
+      summary: List events (public sees only published, non-archived)
+      security: []
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/EventStatus" } }
+        - { name: organizerId, in: query, schema: { type: string } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/EventPage" } } } }
+    post:
+      tags: [Events]
+      summary: Create an event
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/EventCreate" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Event" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /events/status-counts:
+    get:
+      tags: [Events]
+      summary: Counts of the user's events grouped by status
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  all: { type: integer }
+                  draft: { type: integer }
+                  published: { type: integer }
+                  archived: { type: integer }
+
+  /events/by-slug/{slug}:
+    get:
+      tags: [Events]
+      summary: Get a published event by slug
+      security: []
+      parameters: [{ name: slug, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Event" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /events/{id}:
+    parameters: [{ $ref: "#/components/parameters/EventId" }]
+    get:
+      tags: [Events]
+      summary: Get full event details (organizer/team)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Event" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    patch:
+      tags: [Events]
+      summary: Update event
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/EventUpdate" } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Event" } } } }
+    delete:
+      tags: [Events]
+      summary: Permanently delete event (owner; cascades)
+      responses:
+        "204": { description: Deleted }
+
+  /events/{id}/archive:
+    parameters: [{ $ref: "#/components/parameters/EventId" }]
+    post:
+      tags: [Events]
+      summary: Soft-archive event
+      responses: { "200": { description: OK } }
+
+  /events/{id}/restore:
+    parameters: [{ $ref: "#/components/parameters/EventId" }]
+    post:
+      tags: [Events]
+      summary: Restore archived event to draft
+      responses: { "200": { description: OK } }
+
+  /events/{id}/metrics:
+    parameters: [{ $ref: "#/components/parameters/EventId" }]
+    get:
+      tags: [Events]
+      summary: Dashboard metrics for an event
+      responses: { "200": { description: OK } }
+
+  # ───────────────────────── Ticket types ─────────────────────────
+  /events/{eventId}/ticket-types:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [TicketTypes]
+      summary: List ticket types for an event (with availability)
+      security: []
+      parameters: [{ name: includeUnavailable, in: query, schema: { type: boolean, default: false } }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/TicketType" } } } } }
+    post:
+      tags: [TicketTypes]
+      summary: Create a ticket type (module TICKETS)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TicketTypeCreate" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/TicketType" } } } }
+
+  /ticket-types/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [TicketTypes]
+      summary: Get ticket type with detailed stats
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/TicketType" } } } } }
+    patch:
+      tags: [TicketTypes]
+      summary: Update ticket type (quantity >= sold; price locked after sales)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TicketTypeUpdate" } } }
+      responses: { "200": { description: OK }, "409": { $ref: "#/components/responses/Conflict" } }
+    delete:
+      tags: [TicketTypes]
+      summary: Delete ticket type (fails if registrations exist)
+      responses: { "204": { description: Deleted }, "409": { $ref: "#/components/responses/Conflict" } }
+
+  /ticket-types/{id}/stats:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [TicketTypes]
+      summary: Real-time availability stats (public registration page)
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sold: { type: integer }
+                  available: { type: integer }
+                  isAvailable: { type: boolean }
+
+  # ───────────────────────── Registrations ─────────────────────────
+  /public/registrations:
+    post:
+      tags: [Registrations]
+      summary: Self-register for an event (concurrency-safe, sends confirmation)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ticketTypeId, email, name]
+              properties:
+                ticketTypeId: { type: string }
+                email: { type: string, format: email }
+                name: { type: string }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Registration" } } } }
+        "409": { description: Sold out }
+        "422": { description: Outside sale window }
+
+  /public/registrations/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [Registrations]
+      summary: Public registration details (buyer self-service via link)
+      security: []
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Registration" } } } } }
+
+  /public/registrations/lookup:
+    get:
+      tags: [Registrations]
+      summary: Find registrations by email for an event
+      security: []
+      parameters:
+        - { name: eventId, in: query, required: true, schema: { type: string } }
+        - { name: email, in: query, required: true, schema: { type: string, format: email } }
+      responses: { "200": { description: OK } }
+
+  /public/registrations/email-status:
+    post:
+      tags: [Registrations]
+      summary: Update attendee email status (provider callback)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, status]
+              properties:
+                email: { type: string, format: email }
+                status: { $ref: "#/components/schemas/EmailStatus" }
+      responses: { "200": { description: OK } }
+
+  /events/{eventId}/registrations:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [Registrations]
+      summary: List registrations (module ATTENDEES)
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: ticketTypeId, in: query, schema: { type: string } }
+      responses: { "200": { description: OK } }
+    post:
+      tags: [Registrations]
+      summary: Manually add a registration (bypasses availability)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ticketTypeId, email, name]
+              properties:
+                ticketTypeId: { type: string }
+                email: { type: string, format: email }
+                name: { type: string }
+                sendConfirmation: { type: boolean, default: true }
+      responses: { "201": { description: Created } }
+
+  /events/{eventId}/registrations/export:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    post:
+      tags: [Registrations]
+      summary: Export registrations as CSV
+      responses:
+        "200": { description: CSV, content: { text/csv: { schema: { type: string } } } }
+
+  /registrations/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [Registrations]
+      summary: Get a registration (organizer/team)
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Registration" } } } } }
+
+  /registrations/{id}/cancel:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [Registrations]
+      summary: Cancel (hard-delete) registration, freeing the ticket slot
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+                sendNotification: { type: boolean, default: true }
+      responses: { "204": { description: Cancelled } }
+
+  /registrations/{id}/resend-confirmation:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [Registrations]
+      summary: Resend the confirmation email
+      responses: { "202": { description: Queued } }
+
+  # ───────────────────────── Tickets ─────────────────────────
+  /tickets:
+    get:
+      tags: [Tickets]
+      summary: List tickets (requires registrationId or eventId)
+      security: []
+      parameters:
+        - { name: registrationId, in: query, schema: { type: string } }
+        - { name: eventId, in: query, schema: { type: string } }
+        - { name: isAssigned, in: query, schema: { type: boolean } }
+        - { name: isCheckedIn, in: query, schema: { type: boolean } }
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses: { "200": { description: OK } }
+
+  /tickets/by-number/{ticketNumber}:
+    parameters: [{ name: ticketNumber, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [Tickets]
+      summary: Lookup ticket by number (QR scanning)
+      security: []
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ticket" } } } } }
+
+  /tickets/{ticketId}:
+    parameters: [{ name: ticketId, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [Tickets]
+      summary: Get a ticket with relations
+      security: []
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ticket" } } } } }
+
+  /tickets/{ticketId}/qrcode:
+    parameters: [{ name: ticketId, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [Tickets]
+      deprecated: true
+      summary: QR code data URL (QR is now pre-generated at creation)
+      security: []
+      responses: { "200": { description: OK } }
+
+  /tickets/{ticketId}/assignee:
+    parameters: [{ name: ticketId, in: path, required: true, schema: { type: string } }]
+    patch:
+      tags: [Tickets]
+      summary: Assign ticket to an attendee (optimistic lock, cutoff-gated)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [attendee, expectedUpdatedAt]
+              properties:
+                expectedUpdatedAt: { type: string, format: date-time }
+                attendee:
+                  type: object
+                  required: [name, email]
+                  properties:
+                    name: { type: string }
+                    email: { type: string, format: email }
+                    customData: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Assigned, content: { application/json: { schema: { $ref: "#/components/schemas/Ticket" } } } }
+        "409": { description: Conflict (stale updatedAt) or past cutoff }
+    delete:
+      tags: [Tickets]
+      summary: Unassign ticket (fails if checked in; cutoff-gated)
+      parameters: [{ name: expectedUpdatedAt, in: query, required: true, schema: { type: string, format: date-time } }]
+      responses:
+        "200": { description: Unassigned }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  # ───────────────────────── Attendees ─────────────────────────
+  /events/{eventId}/attendees:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [Attendees]
+      summary: List attendees (module ATTENDEES)
+      parameters:
+        - { name: emailStatus, in: query, schema: { $ref: "#/components/schemas/EmailStatus" } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses: { "200": { description: OK } }
+
+  /events/{eventId}/attendees/export:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [Attendees]
+      summary: Export attendees as CSV
+      parameters:
+        - { name: emailStatus, in: query, schema: { $ref: "#/components/schemas/EmailStatus" } }
+        - { name: includeCustomFields, in: query, schema: { type: boolean } }
+        - { name: includeCheckInStatus, in: query, schema: { type: boolean } }
+      responses:
+        "200": { description: CSV, content: { text/csv: { schema: { type: string } } } }
+
+  /events/{eventId}/custom-fields/{fieldId}/responses:
+    parameters:
+      - { $ref: "#/components/parameters/EventIdPath" }
+      - { name: fieldId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Attendees]
+      summary: Aggregated responses for a custom field
+      responses: { "200": { description: OK } }
+
+  /events/{eventId}/attendees/import/parse:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    post:
+      tags: [Attendees]
+      summary: Parse CSV → preview + suggested field mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [fileContent], properties: { fileContent: { type: string } } }
+      responses: { "200": { description: OK } }
+
+  /events/{eventId}/attendees/import/validate:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    post:
+      tags: [Attendees]
+      summary: Validate CSV import before executing
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CsvImport" } } }
+      responses: { "200": { description: OK } }
+
+  /events/{eventId}/attendees/import:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    post:
+      tags: [Attendees]
+      summary: Execute CSV import (partial-commit, idempotent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/CsvImport"
+                - type: object
+                  properties:
+                    sendConfirmationEmails: { type: boolean, default: false }
+                    idempotencyKey: { type: string }
+      responses: { "200": { description: OK } }
+
+  /attendees/{attendeeId}:
+    parameters: [{ name: attendeeId, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [Attendees]
+      summary: Get attendee (public for self, protected for organizer)
+      security: []
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Attendee" } } } } }
+    patch:
+      tags: [Attendees]
+      summary: Update attendee info
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                customData: { type: object, additionalProperties: true }
+      responses: { "200": { description: OK } }
+
+  /attendees/email-status:
+    post:
+      tags: [Attendees]
+      summary: Update attendee email delivery status (module ATTENDEES)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, eventId, status]
+              properties:
+                email: { type: string, format: email }
+                eventId: { type: string }
+                status: { $ref: "#/components/schemas/EmailStatus" }
+                reason: { type: string }
+      responses: { "200": { description: OK } }
+
+  # ───────────────────────── Schedule ─────────────────────────
+  /events/{eventId}/schedule:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [Schedule]
+      summary: List schedule entries
+      security: []
+      parameters:
+        - { name: date, in: query, schema: { type: string, format: date } }
+        - { name: track, in: query, schema: { type: string } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/ScheduleEntry" } } } } } }
+    post:
+      tags: [Schedule]
+      summary: Create schedule entry (module SCHEDULE)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ScheduleEntryCreate" } } }
+      responses: { "201": { description: Created } }
+
+  /events/{eventId}/schedule/reorder:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    post:
+      tags: [Schedule]
+      summary: Reorder schedule entries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [entryIds], properties: { entryIds: { type: array, items: { type: string } } } }
+      responses: { "200": { description: OK } }
+
+  /events/{eventId}/schedule/overlap:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [Schedule]
+      summary: Check for overlapping entries
+      parameters:
+        - { name: startTime, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: endTime, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: location, in: query, schema: { type: string } }
+        - { name: excludeId, in: query, schema: { type: string } }
+      responses: { "200": { description: OK } }
+
+  /events/{eventId}/schedule/by-date:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [Schedule]
+      summary: Entries for a date, grouped by track
+      security: []
+      parameters: [{ name: date, in: query, required: true, schema: { type: string, format: date } }]
+      responses: { "200": { description: OK } }
+
+  /events/{eventId}/schedule/tracks:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [Schedule]
+      summary: Unique tracks with colors
+      security: []
+      responses: { "200": { description: OK } }
+
+  /schedule/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [Schedule]
+      summary: Get a schedule entry
+      security: []
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ScheduleEntry" } } } } }
+    patch:
+      tags: [Schedule]
+      summary: Update entry (optimistic concurrency via updatedAt)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/ScheduleEntryUpdate"
+                - type: object
+                  required: [updatedAt]
+                  properties: { updatedAt: { type: string, format: date-time } }
+      responses: { "200": { description: OK }, "409": { $ref: "#/components/responses/Conflict" } }
+    delete:
+      tags: [Schedule]
+      summary: Delete entry
+      responses: { "204": { description: Deleted } }
+
+  # ───────────────────────── Speakers ─────────────────────────
+  /events/{eventId}/speakers:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [Speakers]
+      summary: List speakers for an event
+      security: []
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Speaker" } } } } } }
+    post:
+      tags: [Speakers]
+      summary: Create a speaker (module SPEAKERS)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/SpeakerCreate" } } }
+      responses: { "201": { description: Created } }
+
+  /speakers/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [Speakers]
+      summary: Get speaker with sessions
+      security: []
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Speaker" } } } } }
+    patch:
+      tags: [Speakers]
+      summary: Update speaker
+      requestBody:
+        content: { application/json: { schema: { $ref: "#/components/schemas/SpeakerUpdate" } } }
+      responses: { "200": { description: OK } }
+    delete:
+      tags: [Speakers]
+      summary: Delete speaker (cascades session assignments)
+      responses: { "204": { description: Deleted } }
+
+  /speakers/{speakerId}/sessions:
+    parameters: [{ name: speakerId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [Speakers]
+      summary: Assign speaker to a schedule session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scheduleEntryId]
+              properties:
+                scheduleEntryId: { type: string }
+                role: { type: string, enum: [speaker, moderator, panelist], default: speaker }
+      responses: { "201": { description: Assigned } }
+
+  /speakers/{speakerId}/sessions/{scheduleEntryId}:
+    parameters:
+      - { name: speakerId, in: path, required: true, schema: { type: string } }
+      - { name: scheduleEntryId, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Speakers]
+      summary: Unassign speaker from session
+      responses: { "204": { description: Removed } }
+
+  # ───────────────────────── CFP ─────────────────────────
+  /public/cfp:
+    get:
+      tags: [CFP]
+      summary: Public CFP data for the submission page
+      security: []
+      parameters:
+        - { name: eventId, in: query, schema: { type: string } }
+        - { name: eventSlug, in: query, schema: { type: string } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/CallForPapers" } } } } }
+
+  /public/cfp/{cfpId}/submissions:
+    parameters: [{ name: cfpId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [CFP]
+      summary: Submit a proposal (public)
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CfpSubmissionCreate" } } }
+      responses: { "201": { description: Created } }
+
+  /events/{eventId}/cfp:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [CFP]
+      summary: Get the event's CFP (module CFP)
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/CallForPapers" } } } } }
+    post:
+      tags: [CFP]
+      summary: Open a CFP for the event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [guidelines, deadline]
+              properties:
+                guidelines: { type: string, minLength: 50, maxLength: 5000 }
+                deadline: { type: string, format: date-time }
+                requiredFields: { $ref: "#/components/schemas/CfpRequiredFields" }
+      responses: { "201": { description: Created } }
+
+  /cfp/{cfpId}:
+    parameters: [{ name: cfpId, in: path, required: true, schema: { type: string } }]
+    patch:
+      tags: [CFP]
+      summary: Update CFP guidelines/settings
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                guidelines: { type: string }
+                deadline: { type: string, format: date-time }
+                requiredFields: { $ref: "#/components/schemas/CfpRequiredFields" }
+      responses: { "200": { description: OK } }
+
+  /cfp/{cfpId}/close:
+    parameters: [{ name: cfpId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [CFP]
+      summary: Close a CFP
+      responses: { "200": { description: OK } }
+
+  /cfp/{cfpId}/reopen:
+    parameters: [{ name: cfpId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [CFP]
+      summary: Reopen a closed CFP (if deadline not passed)
+      responses: { "200": { description: OK }, "409": { $ref: "#/components/responses/Conflict" } }
+
+  /cfp/{cfpId}/submissions:
+    parameters: [{ name: cfpId, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [CFP]
+      summary: List submissions (paginated)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, accepted, rejected, all] } }
+        - { name: limit, in: query, schema: { type: integer, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses: { "200": { description: OK } }
+
+  /cfp/submissions/{submissionId}/review:
+    parameters: [{ name: submissionId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [CFP]
+      summary: Add review notes and score
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reviewNotes: { type: string, maxLength: 2000 }
+                reviewScore: { type: integer, minimum: 1, maximum: 5 }
+      responses: { "200": { description: OK } }
+
+  /cfp/submissions/{submissionId}/accept:
+    parameters: [{ name: submissionId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [CFP]
+      summary: Accept proposal (creates a Speaker)
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { reviewNotes: { type: string } } } } }
+      responses: { "200": { description: Accepted } }
+
+  /cfp/submissions/{submissionId}/reject:
+    parameters: [{ name: submissionId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [CFP]
+      summary: Reject proposal with feedback
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { reviewNotes: { type: string } } } } }
+      responses: { "200": { description: Rejected } }
+
+  # ───────────────────────── Communications ─────────────────────────
+  /events/{eventId}/campaigns:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [Communications]
+      summary: List campaigns (module COMMUNICATIONS)
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses: { "200": { description: OK } }
+    post:
+      tags: [Communications]
+      summary: Create a campaign (draft)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CampaignCreate" } } }
+      responses: { "201": { description: Created } }
+
+  /campaigns/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [Communications]
+      summary: Get a campaign
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/EmailCampaign" } } } } }
+    patch:
+      tags: [Communications]
+      summary: Update campaign (draft only)
+      requestBody:
+        content: { application/json: { schema: { $ref: "#/components/schemas/CampaignUpdate" } } }
+      responses: { "200": { description: OK } }
+
+  /campaigns/{id}/send:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [Communications]
+      summary: Send the campaign immediately
+      responses: { "202": { description: Sending } }
+
+  /campaigns/{id}/schedule:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [Communications]
+      summary: Schedule the campaign for future send
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [scheduledFor], properties: { scheduledFor: { type: string, format: date-time } } }
+      responses: { "200": { description: Scheduled } }
+
+  /campaigns/{id}/stats:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [Communications]
+      summary: Delivery metrics for the campaign
+      responses: { "200": { description: OK } }
+
+  # ───────────────────────── Team ─────────────────────────
+  /events/{eventId}/team/me:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [Team]
+      summary: Current user's membership for the event
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/TeamMember" } } } } }
+
+  /events/{eventId}/team/members:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [Team]
+      summary: List team members (owner)
+      parameters:
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/TeamMemberStatus" } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 50 } }
+      responses: { "200": { description: OK } }
+
+  /events/{eventId}/team/invitations:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    post:
+      tags: [Team]
+      summary: Invite a collaborator (owner)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, modulePermissions]
+              properties:
+                email: { type: string, format: email }
+                modulePermissions: { type: array, items: { $ref: "#/components/schemas/ModuleName" } }
+      responses: { "201": { description: Invited } }
+
+  /events/{eventId}/team/invitations/pending:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get: { tags: [Team], summary: Pending invitations (owner), responses: { "200": { description: OK } } }
+
+  /events/{eventId}/team/invitations/declined:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get: { tags: [Team], summary: Declined invitations, last 30 days (owner), responses: { "200": { description: OK } } }
+
+  /events/{eventId}/team/invitations/expired:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get: { tags: [Team], summary: Expired invitations, last 30 days (owner), responses: { "200": { description: OK } } }
+
+  /team/invitations/{invitationId}/resend:
+    parameters: [{ name: invitationId, in: path, required: true, schema: { type: string } }]
+    post: { tags: [Team], summary: Resend invitation with new token (owner), responses: { "200": { description: OK } } }
+
+  /team/invitations/{invitationId}:
+    parameters: [{ name: invitationId, in: path, required: true, schema: { type: string } }]
+    delete: { tags: [Team], summary: Cancel a pending invitation (owner), responses: { "204": { description: Cancelled } } }
+
+  /team/invitations/accept:
+    post:
+      tags: [Team]
+      summary: Accept an invitation via token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [token], properties: { token: { type: string, minLength: 43, maxLength: 43 } } }
+      responses: { "200": { description: Accepted } }
+
+  /team/invitations/decline:
+    post:
+      tags: [Team]
+      summary: Decline an invitation via token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [token], properties: { token: { type: string, minLength: 43, maxLength: 43 } } }
+      responses: { "200": { description: Declined } }
+
+  /team/members/{teamMemberId}:
+    parameters: [{ name: teamMemberId, in: path, required: true, schema: { type: string } }]
+    delete: { tags: [Team], summary: Remove a collaborator (owner), responses: { "204": { description: Removed } } }
+
+  /team/members/{teamMemberId}/permissions:
+    parameters: [{ name: teamMemberId, in: path, required: true, schema: { type: string } }]
+    patch:
+      tags: [Team]
+      summary: Update a collaborator's module permissions (owner)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modulePermissions]
+              properties:
+                modulePermissions: { type: array, items: { $ref: "#/components/schemas/ModuleName" } }
+      responses: { "200": { description: OK } }
+
+  # ───────────────────────── Check-in ─────────────────────────
+  /events/{eventId}/check-in:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    post:
+      tags: [CheckIn]
+      summary: Check in a ticket by number or QR (idempotent; module CHECKIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ticketNumber: { type: string }
+                qrCodeData: { type: string }
+      responses: { "200": { description: Checked in (or already checked in) } }
+
+  /events/{eventId}/check-in/attendees:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [CheckIn]
+      summary: List attendees for check-in
+      parameters:
+        - { name: filter, in: query, schema: { type: string, enum: [checked-in, not-checked-in] } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: pageSize, in: query, schema: { type: integer } }
+      responses: { "200": { description: OK } }
+
+  /events/{eventId}/check-in/metrics:
+    parameters: [{ $ref: "#/components/parameters/EventIdPath" }]
+    get:
+      tags: [CheckIn]
+      summary: Check-in statistics and recent activity
+      responses: { "200": { description: OK } }
+
+  /events/{eventId}/check-in/ticket/{ticketNumber}:
+    parameters:
+      - { $ref: "#/components/parameters/EventIdPath" }
+      - { name: ticketNumber, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [CheckIn]
+      summary: Ticket details by number (confirmation before check-in)
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Ticket" } } } } }
+
+  # ───────────────────────── Uploads ─────────────────────────
+  /uploads:
+    post:
+      tags: [Uploads]
+      summary: Upload a file (image ≤5MB, pdf ≤10MB)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                type: { type: string, enum: [image, document] }
+      responses:
+        "201":
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url: { type: string, format: uri }
+                  filename: { type: string }
+                  size: { type: integer }
+                  type: { type: string }
+    delete:
+      tags: [Uploads]
+      summary: Delete a file by URL
+      parameters: [{ name: url, in: query, required: true, schema: { type: string } }]
+      responses: { "204": { description: Deleted } }
+
+  # ───────────────────────── Webhooks ─────────────────────────
+  /webhooks/email:
+    post:
+      tags: [Webhooks]
+      summary: Email-provider delivery events (signature-verified)
+      description: |
+        Updates campaign delivery metrics and attendee emailStatus from
+        delivered / bounced / opened / clicked / complained events.
+        MUST verify the provider signature header (handled in the mail adapter).
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: true } } }
+      responses: { "200": { description: Processed } }
+
+  # ───────────────────────── Jobs (scheduler-triggered) ─────────────────────────
+  /jobs/close-expired-cfps:
+    post:
+      tags: [Jobs]
+      summary: Close CFPs past their deadline
+      security: [{ cronSecret: [] }]
+      responses: { "200": { description: OK } }
+  /jobs/send-scheduled-campaigns:
+    post:
+      tags: [Jobs]
+      summary: Send due scheduled campaigns
+      security: [{ cronSecret: [] }]
+      responses: { "200": { description: OK } }
+  /jobs/expire-invitations:
+    post:
+      tags: [Jobs]
+      summary: Expire pending invitations past expiry
+      security: [{ cronSecret: [] }]
+      responses: { "200": { description: OK } }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    cronSecret:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: "Bearer {CRON_SECRET} for scheduler-triggered endpoints"
+
+  parameters:
+    EventId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    EventIdPath:
+      name: eventId
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+    Unauthorized:
+      description: Missing/invalid credentials
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+    Forbidden:
+      description: Insufficient permissions for this event/module
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+    NotFound:
+      description: Resource not found
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+    Conflict:
+      description: Conflict (uniqueness, optimistic lock, or business rule)
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+
+  schemas:
+    Problem:
+      type: object
+      description: RFC 7807 problem details
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        errors: { type: object, additionalProperties: true }
+
+    # ── Enums ──
+    EventStatus: { type: string, enum: [draft, published, archived] }
+    LocationType: { type: string, enum: [in-person, virtual, hybrid] }
+    EmailStatus: { type: string, enum: [active, bounced, unsubscribed] }
+    PaymentStatus: { type: string, enum: [free, pending, paid, failed, refunded] }
+    SessionType: { type: string, enum: [keynote, talk, workshop, break, networking] }
+    SessionFormat: { type: string, enum: [talk, workshop, panel, lightning] }
+    CampaignStatus: { type: string, enum: [draft, scheduled, sending, sent, failed] }
+    RecipientType: { type: string, enum: [all_attendees, ticket_type, speakers, custom] }
+    TeamRole: { type: string, enum: [OWNER, COLLABORATOR] }
+    TeamMemberStatus: { type: string, enum: [PENDING, ACTIVE, REMOVED] }
+    InvitationStatus: { type: string, enum: [PENDING, ACCEPTED, DECLINED, EXPIRED, CANCELLED] }
+    ModuleName:
+      type: string
+      enum: [OVERVIEW, ATTENDEES, TICKETS, SCHEDULE, SPEAKERS, CFP, COMMUNICATIONS, CHECKIN]
+
+    # ── Money ──
+    MoneyMinor:
+      type: string
+      pattern: '^-?\d+$'
+      default: "0"
+      description: >-
+        Monetary amount as a BigInt count of the currency's minor unit (base units,
+        e.g. kobo for NGN, cents for USD). Serialized as a decimal integer string to
+        avoid IEEE-754 precision loss. Example: "250000" = ₦2,500.00. Pair with the
+        sibling `currency` (ISO 4217) to render a human amount. MVP requires "0".
+      examples: ["0", "250000"]
+
+    # ── JSON-typed shapes ──
+    CustomFieldDefinition:
+      type: object
+      required: [id, label, type, required]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        type: { type: string, enum: [text, textarea, select, checkbox, radio] }
+        required: { type: boolean }
+        placeholder: { type: string }
+        options: { type: array, items: { type: string } }
+        pattern: { type: string }
+        minLength: { type: integer }
+        maxLength: { type: integer }
+        minSelections: { type: integer }
+        maxSelections: { type: integer }
+        helpText: { type: string }
+    CfpRequiredFields:
+      type: object
+      properties:
+        bio: { type: boolean }
+        sessionFormat: { type: boolean }
+        duration: { type: boolean }
+        photo: { type: boolean }
+
+    # ── Core entities ──
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string, nullable: true }
+        email: { type: string, format: email, nullable: true }
+        image: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+    UserProfile:
+      allOf:
+        - $ref: "#/components/schemas/User"
+        - type: object
+          properties:
+            eventCount: { type: integer }
+            attendeeCount: { type: integer }
+
+    Event:
+      type: object
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        name: { type: string }
+        description: { type: string }
+        locationType: { $ref: "#/components/schemas/LocationType" }
+        locationAddress: { type: string, nullable: true }
+        locationUrl: { type: string, nullable: true }
+        timezone: { type: string }
+        startDate: { type: string, format: date-time }
+        endDate: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/EventStatus" }
+        isArchived: { type: boolean }
+        assignmentCutoffType: { type: string, enum: [event_start, 1h_before, 24h_before, custom] }
+        assignmentCutoffTime: { type: string, format: date-time, nullable: true }
+        maxTicketsPerPurchase: { type: integer }
+        customFields:
+          type: array
+          nullable: true
+          items: { $ref: "#/components/schemas/CustomFieldDefinition" }
+        organizerId: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    EventCreate:
+      type: object
+      required: [slug, name, description, startDate, endDate, locationType]
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        description: { type: string }
+        startDate: { type: string, format: date-time }
+        endDate: { type: string, format: date-time }
+        timezone: { type: string, default: UTC }
+        locationType: { $ref: "#/components/schemas/LocationType" }
+        locationAddress: { type: string }
+        locationUrl: { type: string }
+        status: { $ref: "#/components/schemas/EventStatus" }
+        customFields: { type: array, items: { $ref: "#/components/schemas/CustomFieldDefinition" } }
+    EventUpdate:
+      allOf:
+        - $ref: "#/components/schemas/EventCreate"
+      description: All fields optional on update.
+    EventPage:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Event" } }
+        nextCursor: { type: string, nullable: true }
+
+    TicketType:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        name: { type: string }
+        description: { type: string }
+        price: { $ref: "#/components/schemas/MoneyMinor" }
+        currency: { type: string, description: "ISO 4217; default NGN" }
+        quantity: { type: integer }
+        saleStart: { type: string, format: date-time, nullable: true }
+        saleEnd: { type: string, format: date-time, nullable: true }
+        sold: { type: integer, readOnly: true }
+        available: { type: integer, readOnly: true }
+    TicketTypeCreate:
+      type: object
+      required: [name, description, quantity]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        price: { $ref: "#/components/schemas/MoneyMinor" }
+        currency: { type: string, default: NGN }
+        quantity: { type: integer }
+        saleStart: { type: string, format: date-time }
+        saleEnd: { type: string, format: date-time }
+    TicketTypeUpdate:
+      allOf: [{ $ref: "#/components/schemas/TicketTypeCreate" }]
+      description: All fields optional; quantity must be >= sold; price locked after sales.
+
+    Registration:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        ticketTypeId: { type: string }
+        email: { type: string, format: email }
+        name: { type: string }
+        quantity: { type: integer }
+        paymentStatus: { $ref: "#/components/schemas/PaymentStatus" }
+        tickets: { type: array, items: { $ref: "#/components/schemas/Ticket" } }
+        registeredAt: { type: string, format: date-time }
+
+    Ticket:
+      type: object
+      properties:
+        id: { type: string }
+        registrationId: { type: string }
+        eventId: { type: string }
+        ticketTypeId: { type: string }
+        ticketNumber: { type: string }
+        qrCodeData: { type: string }
+        isAssigned: { type: boolean }
+        assignedAt: { type: string, format: date-time, nullable: true }
+        attendeeId: { type: string, nullable: true }
+        attendee: { $ref: "#/components/schemas/Attendee" }
+        isCheckedIn: { type: boolean }
+        checkedInAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time }
+
+    Attendee:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string, format: email }
+        customData: { type: object, additionalProperties: true, nullable: true }
+        emailStatus: { $ref: "#/components/schemas/EmailStatus" }
+
+    CsvImport:
+      type: object
+      required: [fileContent, fieldMapping]
+      properties:
+        fileContent: { type: string }
+        fieldMapping: { type: object, additionalProperties: { type: string } }
+        duplicateStrategy: { type: string, enum: [skip, create], default: skip }
+
+    ScheduleEntry:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        title: { type: string }
+        description: { type: string }
+        startTime: { type: string, format: date-time }
+        endTime: { type: string, format: date-time }
+        location: { type: string, nullable: true }
+        track: { type: string, nullable: true }
+        trackColor: { type: string, nullable: true }
+        sessionType: { $ref: "#/components/schemas/SessionType" }
+        updatedAt: { type: string, format: date-time }
+    ScheduleEntryCreate:
+      type: object
+      required: [title, description, startTime, endTime]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        date: { type: string, format: date }
+        startTime: { type: string, format: date-time }
+        endTime: { type: string, format: date-time }
+        location: { type: string }
+        track: { type: string }
+        trackColor: { type: string }
+        sessionType: { $ref: "#/components/schemas/SessionType" }
+        speakerIds: { type: array, items: { type: string } }
+    ScheduleEntryUpdate:
+      allOf: [{ $ref: "#/components/schemas/ScheduleEntryCreate" }]
+      description: All fields optional on update.
+
+    Speaker:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        name: { type: string }
+        bio: { type: string }
+        email: { type: string, format: email }
+        photo: { type: string, nullable: true }
+        twitter: { type: string, nullable: true }
+        github: { type: string, nullable: true }
+        linkedin: { type: string, nullable: true }
+        website: { type: string, nullable: true }
+    SpeakerCreate:
+      type: object
+      required: [name, bio, email]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 200 }
+        bio: { type: string, minLength: 10, maxLength: 5000 }
+        email: { type: string, format: email }
+        photo: { type: string, format: uri }
+        twitter: { type: string }
+        github: { type: string }
+        linkedin: { type: string }
+        website: { type: string, format: uri }
+    SpeakerUpdate:
+      allOf: [{ $ref: "#/components/schemas/SpeakerCreate" }]
+      description: All fields optional on update.
+
+    CallForPapers:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        guidelines: { type: string }
+        deadline: { type: string, format: date-time }
+        status: { type: string, enum: [open, closed] }
+        requiredFields: { $ref: "#/components/schemas/CfpRequiredFields" }
+    CfpSubmissionCreate:
+      type: object
+      required: [title, description, sessionFormat, duration, speakerName, speakerEmail, speakerBio]
+      properties:
+        title: { type: string, minLength: 5, maxLength: 200 }
+        description: { type: string, minLength: 50, maxLength: 2000 }
+        sessionFormat: { $ref: "#/components/schemas/SessionFormat" }
+        duration: { type: integer, minimum: 5, maximum: 480 }
+        speakerName: { type: string }
+        speakerEmail: { type: string, format: email }
+        speakerBio: { type: string, minLength: 50, maxLength: 1000 }
+        speakerPhoto: { type: string, format: uri }
+        speakerTwitter: { type: string }
+        speakerGithub: { type: string }
+        speakerLinkedin: { type: string }
+        speakerWebsite: { type: string, format: uri }
+
+    EmailCampaign:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        subject: { type: string }
+        body: { type: string }
+        recipientType: { $ref: "#/components/schemas/RecipientType" }
+        recipientFilter: { type: object, additionalProperties: true, nullable: true }
+        status: { $ref: "#/components/schemas/CampaignStatus" }
+        scheduledFor: { type: string, format: date-time, nullable: true }
+        sentAt: { type: string, format: date-time, nullable: true }
+        totalRecipients: { type: integer, nullable: true }
+        delivered: { type: integer }
+        bounces: { type: integer }
+        opens: { type: integer }
+        clicks: { type: integer }
+    CampaignCreate:
+      type: object
+      required: [subject, body, recipientType]
+      properties:
+        subject: { type: string, maxLength: 200 }
+        body: { type: string, minLength: 10 }
+        recipientType: { $ref: "#/components/schemas/RecipientType" }
+        recipientFilter: { type: object, additionalProperties: true }
+    CampaignUpdate:
+      allOf: [{ $ref: "#/components/schemas/CampaignCreate" }]
+      description: Draft only; all fields optional.
+
+    TeamMember:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        userId: { type: string, nullable: true }
+        email: { type: string, format: email }
+        role: { $ref: "#/components/schemas/TeamRole" }
+        status: { $ref: "#/components/schemas/TeamMemberStatus" }
+        modulePermissions: { type: array, items: { $ref: "#/components/schemas/ModuleName" } }
+        invitedAt: { type: string, format: date-time }
+        lastAccessedAt: { type: string, format: date-time, nullable: true }
