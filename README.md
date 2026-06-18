@@ -9,10 +9,10 @@ This service is extracted from the original [T3-stack web app](https://github.co
 74 tRPC procedures and REST routes are being re-implemented here as framework-agnostic
 REST endpoints. See **[`docs/`](./docs/)** for the full design.
 
-> **Project status:** early build. The NestJS app is scaffolded and the design docs
-> (data model, architecture, OpenAPI contract) are complete. Feature modules, Prisma, and
-> JWT auth are being implemented against the contract. Items marked _(planned)_ below are
-> specified in `docs/` but not yet wired up.
+> **Project status:** early build. Config, structured logging, Prisma/PostgreSQL, a Redis
+> cache, and JWT auth (register/login/refresh/logout) are wired up. The remaining feature
+> modules are being implemented against the design docs (data model, architecture, OpenAPI
+> contract). Items marked _(planned)_ below are specified in `docs/` but not yet wired up.
 
 ---
 
@@ -27,7 +27,7 @@ REST endpoints. See **[`docs/`](./docs/)** for the full design.
 - **🎤 Speakers** — speaker profiles and session assignments
 - **👥 Team Collaboration** — invite collaborators with granular, module-based permissions
 - **📧 Email Campaigns** — segmented broadcasts with delivery analytics (Resend)
-- **🔒 Auth & RBAC** _(planned)_ — JWT auth + event-scoped owner/collaborator module permissions
+- **🔒 Auth** — JWT access/refresh login; event-scoped owner/collaborator module RBAC _(planned)_
 - **⏱️ Background Jobs** _(planned)_ — close expired CFPs, send scheduled campaigns, expire invitations
 
 ---
