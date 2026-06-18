@@ -74,6 +74,11 @@ TICKETS, SCHEDULE, SPEAKERS, CFP, COMMUNICATIONS, CHECKIN` (assignable); `SETTIN
 - **Git hooks (husky):** `pre-commit` runs `lint-staged` (Prettier `--write` then ESLint
   `--fix` on staged `*.ts`; Prettier on staged json/md/yaml). `commit-msg` runs commitlint.
   Hooks self-install via the `prepare` script on `yarn install`.
+- **Docker:** multi-stage `Dockerfile` (slim prod image, non-root, listen port from `PORT`).
+  Local stack via `docker compose --env-file .env.docker up` (Postgres + Redis + one-shot
+  `migrate` + api); config lives in the committed `.env.docker`.
+- **CI:** GitHub Actions (`.github/workflows/ci.yml`) — `lint:check` + `build` + unit `test`
+  on push/PR (hermetic), plus commitlint on PRs. Use `yarn lint:check` (no `--fix`) for CI-style checks.
 
 ## Commands
 

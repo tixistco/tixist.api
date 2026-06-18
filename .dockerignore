@@ -1,0 +1,16 @@
+node_modules
+dist
+coverage
+.git
+.github
+.husky
+test
+**/*.spec.ts
+.env
+.env.*
+*.log
+.vscode
+.idea
+Dockerfile
+docker-compose.yml
+.dockerignore

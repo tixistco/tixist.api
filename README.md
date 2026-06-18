@@ -222,16 +222,37 @@ The design docs in **[`docs/`](./docs/)** are the blueprint for this service:
 
 ## 🚢 Deployment
 
-Build and run the compiled service:
+### Docker (local full stack)
+
+`docker compose` brings up Postgres + Redis, applies migrations (one-shot `migrate` service),
+then starts the API:
 
 ```bash
-yarn build
-yarn start:prod           # node dist/main
+docker compose --env-file .env.docker up --build
 ```
 
-For production, use a managed PostgreSQL service (e.g. [Neon](https://neon.tech/),
-[Supabase](https://supabase.com/), [Railway](https://railway.app/)). Container and
-platform deployment notes will be added as the service matures.
+- Config comes from **`.env.docker`** (committed; local-dev placeholders). The `--env-file`
+  flag drives both container env (`env_file`) and `${PORT}` port mapping.
+- The API listens on `PORT` (default 3000); Scalar reference at `/reference` (non-prod).
+
+Build/run the production image directly:
+
+```bash
+docker build -t tix-ist-api .
+docker run -p 3000:3000 --env-file .env.docker tix-ist-api   # supply real env in prod
+```
+
+The image is a slim multi-stage build (prod deps only + generated Prisma client) running as a
+non-root user; the listen port is driven by the `PORT` env var. Migrations are **not**
+auto-applied by the app image — run `yarn db:deploy` (the compose `migrate` service does this).
+
+For managed Postgres in production, use e.g. [Neon](https://neon.tech/),
+[Supabase](https://supabase.com/), or [Railway](https://railway.app/).
+
+### CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and PR: install →
+`lint:check` → `build` → unit `test` (hermetic, no DB/Redis), plus commit-message linting on PRs.
 
 ---
 

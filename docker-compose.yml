@@ -1,0 +1,54 @@
+# Local full stack. Run: docker compose --env-file .env.docker up
+# (the --env-file makes ${PORT} interpolation + container env both come from .env.docker)
+services:
+  postgres:
+    image: postgres:16-alpine
+    env_file: [.env.docker]
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # one-shot: apply migrations using the build stage (it has the Prisma CLI)
+  migrate:
+    build:
+      context: .
+      target: build
+    env_file: [.env.docker]
+    command: yarn db:deploy
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    build:
+      context: .
+    env_file: [.env.docker]
+    ports:
+      - '${PORT:-3000}:${PORT:-3000}'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
