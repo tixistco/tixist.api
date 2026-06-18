@@ -7,6 +7,10 @@ that contract**, not improvised.
 ## What this repo is
 
 - **Package:** `events-ting-api` · NestJS 11 (Express) · TypeScript 5 · Yarn · Jest.
+- **Config & logging (wired):** `@nestjs/config` (global) with validated env via
+  `class-validator` in `src/config/env.validation.ts`; structured logging via `nestjs-pino`
+  (`src/config/logger.config.ts`) — JSON in prod, pretty in dev, `x-request-id` correlation,
+  header redaction. Log via the injected `Logger`/`PinoLogger` from `nestjs-pino`, never `console`.
 - **Status:** early build. Scaffold + design docs are in place; feature modules, Prisma, and
   auth are being implemented. Treat anything marked _(planned)_ in the docs as not-yet-wired.
 - **Source of truth for endpoints:** [`docs/openapi.yaml`](./docs/openapi.yaml) — 105 REST

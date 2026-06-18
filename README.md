@@ -34,20 +34,22 @@ REST endpoints. See **[`docs/`](./docs/)** for the full design.
 
 ## 🏗️ Tech Stack
 
-| Category | Technology |
-|----------|------------|
-| **Framework** | [NestJS 11](https://nestjs.com/) (Express platform) |
-| **Language** | [TypeScript 5](https://www.typescriptlang.org/) |
-| **API style** | REST, documented via [OpenAPI 3.1](./docs/openapi.yaml) (Swagger _planned_) |
-| **Database** | [PostgreSQL](https://www.postgresql.org/) via [Prisma](https://www.prisma.io/) _(planned)_ |
-| **Auth** | JWT bearer + event/module RBAC guards _(planned)_ |
-| **Validation** | DTOs (class-validator / Zod) _(planned)_ |
-| **Email** | Pluggable adapter — [Resend](https://resend.com/) (first impl) _(planned)_ |
-| **Storage** | Pluggable adapter — local / S3 / R2 _(planned)_ |
-| **Payments** | Pluggable processor — free (MVP); Stripe/Paystack _(future)_ |
-| **Scheduler** | [@nestjs/schedule](https://docs.nestjs.com/techniques/task-scheduling) _(planned)_ |
-| **Package Manager** | [Yarn](https://yarnpkg.com/) |
-| **Testing** | [Jest](https://jestjs.io/) (unit + e2e) |
+| Category            | Technology                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Framework**       | [NestJS 11](https://nestjs.com/) (Express platform)                                                                 |
+| **Language**        | [TypeScript 5](https://www.typescriptlang.org/)                                                                     |
+| **API style**       | REST, documented via [OpenAPI 3.1](./docs/openapi.yaml) (Swagger _planned_)                                         |
+| **Config**          | [@nestjs/config](https://docs.nestjs.com/techniques/configuration) with validated env (class-validator)             |
+| **Logging**         | [nestjs-pino](https://github.com/iamolegga/nestjs-pino) (Pino) — structured JSON, request-id correlation, redaction |
+| **Database**        | [PostgreSQL](https://www.postgresql.org/) via [Prisma](https://www.prisma.io/) _(planned)_                          |
+| **Auth**            | JWT bearer + event/module RBAC guards _(planned)_                                                                   |
+| **Validation**      | env via class-validator; request DTOs _(planned)_                                                                   |
+| **Email**           | Pluggable adapter — [Resend](https://resend.com/) (first impl) _(planned)_                                          |
+| **Storage**         | Pluggable adapter — local / S3 / R2 _(planned)_                                                                     |
+| **Payments**        | Pluggable processor — free (MVP); Stripe/Paystack _(future)_                                                        |
+| **Scheduler**       | [@nestjs/schedule](https://docs.nestjs.com/techniques/task-scheduling) _(planned)_                                  |
+| **Package Manager** | [Yarn](https://yarnpkg.com/)                                                                                        |
+| **Testing**         | [Jest](https://jestjs.io/) (unit + e2e)                                                                             |
 
 ---
 
@@ -66,7 +68,7 @@ REST endpoints. See **[`docs/`](./docs/)** for the full design.
 yarn install
 
 # 2. Set up environment variables
-cp .env.example .env   # (planned) — see Environment Variables below
+cp .env.example .env   # see Environment Variables below
 
 # 3. Start the development server
 yarn start:dev
@@ -80,7 +82,9 @@ Configuration groups for the full service (see [`docs/architecture.md`](./docs/a
 
 ```bash
 # Core
+NODE_ENV="development"           # development | production | test
 PORT="3000"
+LOG_LEVEL="debug"                # fatal|error|warn|info|debug|trace|silent (optional)
 APP_URL="http://localhost:3000"
 
 # Database
