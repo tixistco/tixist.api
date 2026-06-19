@@ -224,27 +224,35 @@ The design docs in **[`docs/`](./docs/)** are the blueprint for this service:
 
 ### Docker (local full stack)
 
-`docker compose` brings up Postgres + Redis, applies migrations (one-shot `migrate` service),
-then starts the API:
+Compose brings up Postgres + Redis, applies migrations (one-shot `migrate` service), then
+starts the API. The base `docker-compose.yml` targets the **production** image;
+`docker-compose.override.yml` (auto-merged) switches the API to the **development** image for
+local work.
 
 ```bash
+# Local development (base + auto override → development image: pretty logs + /reference)
 docker compose --env-file .env.docker up --build
+
+# Production-like (base only → production image: slim, JSON logs, no /reference)
+docker compose -f docker-compose.yml --env-file .env.docker up --build
 ```
 
-- Config comes from **`.env.docker`** (committed; local-dev placeholders). The `--env-file`
-  flag drives both container env (`env_file`) and `${PORT}` port mapping.
-- The API listens on `PORT` (default 3000); Scalar reference at `/reference` (non-prod).
+- Config comes from **`.env.docker`** (committed; local-dev placeholders). `--env-file` drives
+  both container env (`env_file`) and `${PORT}`/`${DB_PORT}`/`${REDIS_PORT}` mappings.
+- `NODE_ENV` is **not** set in `.env.docker` — it's baked per build target (development vs
+  production image), so the chosen target decides the mode.
 
-Build/run the production image directly:
+Build/run a single image directly:
 
 ```bash
-docker build -t tix-ist-api .
-docker run -p 3000:3000 --env-file .env.docker tix-ist-api   # supply real env in prod
+docker build -t tix-ist-api .                              # default = production target
+docker run -p 3000:3000 --env-file <prod.env> tix-ist-api  # supply real prod env
 ```
 
-The image is a slim multi-stage build (prod deps only + generated Prisma client) running as a
-non-root user; the listen port is driven by the `PORT` env var. Migrations are **not**
-auto-applied by the app image — run `yarn db:deploy` (the compose `migrate` service does this).
+The production image is a slim multi-stage build (prod deps only + generated Prisma client),
+non-root, listen port from `PORT`. **Don't run the production image with `NODE_ENV=development`**
+(it has no devDeps like `pino-pretty`). Migrations are not auto-applied — the compose `migrate`
+service runs `yarn db:deploy`.
 
 For managed Postgres in production, use e.g. [Neon](https://neon.tech/),
 [Supabase](https://supabase.com/), or [Railway](https://railway.app/).

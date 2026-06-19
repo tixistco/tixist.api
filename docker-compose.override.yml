@@ -1,0 +1,8 @@
+# Local development overrides — auto-merged by `docker compose` (no -f needed).
+# Builds the api from the `development` target (devDeps incl. pino-pretty → pretty
+# logs + Scalar at /reference; NODE_ENV=development is baked into that image).
+# For a production-like run, ignore this file: `docker compose -f docker-compose.yml up`.
+services:
+  api:
+    build:
+      target: development

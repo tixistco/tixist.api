@@ -12,8 +12,15 @@ RUN yarn install --frozen-lockfile
 COPY . .
 RUN yarn build
 
-# ---- runner: slim production image ----
-FROM node:24-alpine AS runner
+# ---- development: full deps (incl. devDeps like pino-pretty) for local/dev containers ----
+FROM build AS development
+ENV NODE_ENV=development
+ENV PORT=3000
+EXPOSE ${PORT}
+CMD ["node", "dist/main.js"]
+
+# ---- production: slim image, prod deps only (default target) ----
+FROM node:24-alpine AS production
 ENV NODE_ENV=production
 ENV HUSKY=0
 ENV PORT=3000
