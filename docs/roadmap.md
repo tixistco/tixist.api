@@ -37,10 +37,14 @@ Establishes the user surface, the core `Event` resource, and the RBAC that gates
   surface (`/public/events`, `/public/events/{slug}` — published only). Ownership is an `organizerId`
   check for now (swaps to RBAC guards in the next slice). Deferred: `GET /events/{id}/metrics` and
   list relation-counts (need ticketing/registration models). _Unblocks most later modules._
-- ⬜ **Team + RBAC (`PermissionsModule`)** — `EventAccessGuard`, `@RequireModule(...)`, `OwnerGuard`;
-  `TeamMember`/`Invitation`/`AuditLog` models; invite/accept/decline. _Gate ownership early._
-  On landing: create an `ACTIVE`/`OWNER` `TeamMember` at event creation + backfill existing events,
-  then swap the `EventsService` `organizerId` checks for the guards.
+- 🟡 **Team + RBAC (`PermissionsModule`)** — `TeamMember`/`Invitation` models + enums; the three
+  guards (`EventAccessGuard`, `ModuleGuard`+`@RequireModule(...)`, `OwnerGuard`) + `@CurrentMembership()`.
+  Event creation now writes an `ACTIVE`/`OWNER` `TeamMember` (existing events backfilled in the
+  migration); Events routes are guard-gated (read = any member, mutate = owner). Team endpoints:
+  invite, accept/decline (token), list members, `team/me`, `/me/memberships`, update permissions,
+  remove, cancel. Deferred: invite **emails** (needs Mail adapter, Phase 5), **audit logging**
+  (`AuditLog`, Phase 5), per-action rate limits (global throttler covers it for now), resend, and the
+  declined/expired invitation lists.
 
 > After Phase 1, revisit the deferred `/me` and Events items (now that the models exist).
 

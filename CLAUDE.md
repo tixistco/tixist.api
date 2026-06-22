@@ -13,7 +13,7 @@ that contract**, not improvised.
   header redaction. Log via the injected `Logger`/`PinoLogger` from `nestjs-pino`, never `console`.
 - **Database (wired):** Prisma 6 + PostgreSQL. Global `PrismaModule`/`PrismaService`
   (`src/prisma/`); schema at `prisma/schema.prisma` grows **incrementally per feature slice**
-  (`User`, `Event` so far). `DATABASE_URL` is **composed** from `DB_*` parts via dotenv expansion
+  (`User`, `Event`, `TeamMember`, `Invitation` so far). `DATABASE_URL` is **composed** from `DB_*` parts via dotenv expansion
   (`expandVariables: true`); edit the parts, not the URL. After schema changes run
   `yarn db:migrate` (dev) and `yarn db:generate`.
 - **Auth (wired):** email+password register/login → JWT **access + refresh** (rotation;
@@ -37,9 +37,20 @@ that contract**, not improvised.
   `organizerId`): create (unique slug), list-mine (cursor + status filter), `status-counts`, get,
   update, `archive`/`restore`, delete; anonymous discovery under `/public/events` +
   `/public/events/{slug}` (`@Public()`, published & non-archived only). Source in `src/events/`.
-  Ownership is a service-level `organizerId` check **for now** — it swaps to the RBAC guards
-  (`EventAccessGuard`/`OwnerGuard`) when the Team slice lands. Deferred: `GET /events/{id}/metrics`
-  and list relation-counts (need ticketing/registration models).
+  Event-scoped routes are RBAC-guarded: read = any active member (`EventAccessGuard`), mutate =
+  owner (`OwnerGuard`). Creating an event also writes the creator's `ACTIVE`/`OWNER` `TeamMember`
+  in the same transaction. Deferred: `GET /events/{id}/metrics` and list relation-counts (need
+  ticketing/registration models).
+- **Team & RBAC (wired):** event-scoped authorization in `src/permissions/` — `PermissionsService`
+  (`checkEventAccess`/`checkModuleAccess`/`checkIsOwner`) behind three guards: `EventAccessGuard`
+  (active member), `ModuleGuard` + `@RequireModule(ModuleName)` (owners bypass, collaborators need
+  the module), `OwnerGuard` (owner-only). Resolve the caller's row with `@CurrentMembership()`.
+  Guards read the event id from the `:eventId` route param (falling back to `:id`); flat `/team/*`
+  routes do the owner check in `TeamService` via `PermissionsService`. Team management in `src/team/`:
+  invite (owner), accept/decline by token, list members, `events/{eventId}/team/me`,
+  `/me/memberships`, update permissions, remove, cancel. The tenant boundary is the **event** (no org
+  layer); a user can own some events and collaborate on others. Deferred: invite emails + audit log
+  (Phase 5), per-action rate limits, resend, declined/expired lists.
 - **Users / `/me` (wired):** the authenticated caller's own profile — `GET /me` (profile),
   `PATCH /me` (update name/email/image; email change checks uniqueness, resets `emailVerified`,
   and evicts the auth cache), `POST /me/change-password` (verifies current password). Source in
@@ -139,6 +150,8 @@ src/
   auth/                  # register/login/refresh/logout, JWT strategies, guards, cached AuthUserService
   users/                 # /me: profile (get/update), change-password
   events/                # organizer CRUD + status flow + public discovery (/public/events)
+  permissions/           # event RBAC: PermissionsService + EventAccess/Module/Owner guards
+  team/                  # team membership + invitation lifecycle (invite/accept/decline/manage)
   common/                # @Public()/@CurrentUser() decorators + JwtAuthGuard
   openapi/               # setupOpenApi() — Scalar reference + /openapi.json
 prisma/                  # schema.prisma + migrations/ (create-only; apply with yarn db:deploy)

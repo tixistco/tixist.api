@@ -12,6 +12,7 @@ import { CacheModule } from './cache/cache.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { EventsModule } from './events/events.module';
+import { TeamModule } from './team/team.module';
 import { CommonModule } from './common/common.module';
 
 @Module({
@@ -49,6 +50,7 @@ import { CommonModule } from './common/common.module';
     AuthModule,
     UsersModule,
     EventsModule,
+    TeamModule,
   ],
   controllers: [AppController],
   providers: [AppService],
