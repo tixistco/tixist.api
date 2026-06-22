@@ -14,16 +14,15 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import {
+  ASSIGNMENT_CUTOFF_TYPES,
+  AssignmentCutoffType,
+  EVENT_STATUSES,
+  EventStatus,
+  LOCATION_TYPES,
+  LocationType,
+} from '../event.constants';
 import { CustomFieldDefinitionDto } from './custom-field-definition.dto';
-
-export const LOCATION_TYPES = ['in-person', 'virtual', 'hybrid'] as const;
-export const EVENT_STATUSES = ['draft', 'published', 'archived'] as const;
-export const ASSIGNMENT_CUTOFF_TYPES = [
-  'event_start',
-  '1h_before',
-  '24h_before',
-  'custom',
-] as const;
 
 export class CreateEventDto {
   /**
@@ -58,7 +57,7 @@ export class CreateEventDto {
 
   /** Where the event happens. */
   @IsIn(LOCATION_TYPES)
-  locationType!: (typeof LOCATION_TYPES)[number];
+  locationType!: LocationType;
 
   /**
    * Physical address (required for in-person/hybrid).
@@ -96,12 +95,12 @@ export class CreateEventDto {
   /** Lifecycle status; defaults to draft. */
   @IsOptional()
   @IsIn(EVENT_STATUSES)
-  status?: (typeof EVENT_STATUSES)[number];
+  status?: EventStatus;
 
   /** When ticket assignment closes. */
   @IsOptional()
   @IsIn(ASSIGNMENT_CUTOFF_TYPES)
-  assignmentCutoffType?: (typeof ASSIGNMENT_CUTOFF_TYPES)[number];
+  assignmentCutoffType?: AssignmentCutoffType;
 
   /** Custom cutoff instant, used when `assignmentCutoffType` is `custom`. */
   @IsOptional()

@@ -4,8 +4,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { TicketType } from '@prisma/client';
+import { EventStatus } from '../events/event.constants';
 import { PermissionsService } from '../permissions/permissions.service';
+import { Module } from '../permissions/permissions.types';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_CURRENCY } from './ticket-type.constants';
 import { CreateTicketTypeDto } from './dto/create-ticket-type.dto';
 import { UpdateTicketTypeDto } from './dto/update-ticket-type.dto';
 
@@ -34,7 +37,7 @@ export class TicketTypesService {
         name: dto.name,
         description: dto.description,
         price: BigInt(dto.price ?? 0),
-        currency: dto.currency ?? 'NGN',
+        currency: dto.currency ?? DEFAULT_CURRENCY,
         quantity: dto.quantity,
         saleStart: dto.saleStart,
         saleEnd: dto.saleEnd,
@@ -68,7 +71,11 @@ export class TicketTypesService {
     dto: UpdateTicketTypeDto,
   ): Promise<TicketType> {
     const tier = await this.requireTier(id);
-    await this.permissions.checkModuleAccess(tier.eventId, callerId, 'TICKETS');
+    await this.permissions.checkModuleAccess(
+      tier.eventId,
+      callerId,
+      Module.Tickets,
+    );
 
     const sold = await this.soldCount(tier.id);
     if (dto.quantity !== undefined && dto.quantity < sold) {
@@ -107,7 +114,11 @@ export class TicketTypesService {
   /** Delete a tier (TICKETS module); blocked once it has registrations. */
   async remove(callerId: string, id: string): Promise<void> {
     const tier = await this.requireTier(id);
-    await this.permissions.checkModuleAccess(tier.eventId, callerId, 'TICKETS');
+    await this.permissions.checkModuleAccess(
+      tier.eventId,
+      callerId,
+      Module.Tickets,
+    );
 
     const sold = await this.soldCount(tier.id);
     if (sold > 0) {
@@ -124,7 +135,7 @@ export class TicketTypesService {
       where: { slug },
       select: { id: true, status: true, isArchived: true },
     });
-    if (!event || event.status !== 'published' || event.isArchived) {
+    if (!event || event.status !== EventStatus.Published || event.isArchived) {
       throw new NotFoundException('Event not found');
     }
     const now = new Date();

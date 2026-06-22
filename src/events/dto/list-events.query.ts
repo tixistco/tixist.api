@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { EVENT_STATUSES } from './create-event.dto';
+import { EVENT_STATUSES, EventStatus } from '../event.constants';
 
 /** Query params for cursor-paginated event listing. */
 export class ListEventsQuery {
@@ -20,5 +20,5 @@ export class ListEventsQuery {
   /** Filter to a single lifecycle status. */
   @IsOptional()
   @IsIn(EVENT_STATUSES)
-  status?: (typeof EVENT_STATUSES)[number];
+  status?: EventStatus;
 }

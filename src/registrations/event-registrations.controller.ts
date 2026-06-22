@@ -8,6 +8,7 @@ import {
 import { Paginated } from '../common/pagination/paginated';
 import { ApiTag } from '../openapi/api-tags';
 import { ModuleGuard } from '../permissions/event-rbac.guards';
+import { Module } from '../permissions/permissions.types';
 import { RequireModule } from '../permissions/require-module.decorator';
 import { ListRegistrationsQuery } from './dto/list-registrations.query';
 import { RegistrationResponseDto } from './dto/registration-response.dto';
@@ -28,7 +29,7 @@ export class EventRegistrationsController {
    */
   @Get()
   @UseGuards(ModuleGuard)
-  @RequireModule('ATTENDEES')
+  @RequireModule(Module.Attendees)
   @ApiPaginatedResponse(RegistrationResponseDto, {
     description: 'Registrations',
   })

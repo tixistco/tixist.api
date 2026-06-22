@@ -18,6 +18,7 @@ import {
   EventAccessGuard,
   ModuleGuard,
 } from '../permissions/event-rbac.guards';
+import { Module } from '../permissions/permissions.types';
 import { RequireModule } from '../permissions/require-module.decorator';
 import { CreateTicketTypeDto } from './dto/create-ticket-type.dto';
 import { TicketTypeResponseDto } from './dto/ticket-type-response.dto';
@@ -39,7 +40,7 @@ export class EventTicketTypesController {
    */
   @Post()
   @UseGuards(ModuleGuard)
-  @RequireModule('TICKETS')
+  @RequireModule(Module.Tickets)
   @HttpCode(201)
   @ApiStandardResponse(TicketTypeResponseDto, {
     status: 201,

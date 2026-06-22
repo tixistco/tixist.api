@@ -5,8 +5,11 @@ import {
 } from '@nestjs/common';
 import { Prisma, Registration } from '@prisma/client';
 import { Paginated } from '../common/pagination/paginated';
+import { EventStatus } from '../events/event.constants';
 import { PermissionsService } from '../permissions/permissions.service';
+import { Module } from '../permissions/permissions.types';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaymentStatus } from './registration.constants';
 import { RegisterDto } from './dto/register.dto';
 
 /** Row shape from the FOR UPDATE lock query. */
@@ -62,7 +65,11 @@ export class RegistrationsService {
           maxTicketsPerPurchase: true,
         },
       });
-      if (!event || event.status !== 'published' || event.isArchived) {
+      if (
+        !event ||
+        event.status !== EventStatus.Published ||
+        event.isArchived
+      ) {
         throw new NotFoundException('Event not found');
       }
 
@@ -115,7 +122,7 @@ export class RegistrationsService {
           name: dto.name,
           userId,
           quantity,
-          paymentStatus: 'free',
+          paymentStatus: PaymentStatus.Free,
         },
       });
     });
@@ -157,7 +164,7 @@ export class RegistrationsService {
     await this.permissions.checkModuleAccess(
       registration.eventId,
       callerId,
-      'ATTENDEES',
+      Module.Attendees,
     );
     await this.prisma.registration.delete({ where: { id } });
   }

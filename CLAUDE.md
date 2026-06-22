@@ -88,6 +88,14 @@ that contract**, not improvised.
 
 - **REST, not RPC.** Resource-oriented endpoints; non-CRUD actions use sub-paths
   (`POST /events/{id}/archive`). Implement to match `docs/openapi.yaml`.
+- **No magic strings.** Never hard-code a domain value (statuses, roles, module names, currency)
+  as a bare string literal in services/controllers/DTOs. Reference a named constant so a typo is a
+  compile error: **DB enums** use the Prisma-generated objects (`TeamRole.OWNER`,
+  `TeamMemberStatus.ACTIVE`, `InvitationStatus.PENDING`); **plain-string columns** use the per-module
+  const objects (`EventStatus`/`LocationType`/`AssignmentCutoffType` in `events/event.constants.ts`,
+  `PaymentStatus` in `registrations/registration.constants.ts`, `DEFAULT_CURRENCY` in
+  `ticket-types/ticket-type.constants.ts`); **module names** use `Module.*` from
+  `permissions/permissions.types.ts`. Derive `@IsIn` arrays / `@IsEnum` from those, never re-list literals.
 - **Money = BigInt minor units**, default currency **NGN** (kobo). Never floats/decimals.
   Serialize over the wire as integer strings. See `docs/data-model.md#money-representation`.
 - **Adapter pattern** for external integrations — code to an interface, with one concrete

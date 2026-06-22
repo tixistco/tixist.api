@@ -3,17 +3,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Event, Prisma } from '@prisma/client';
+import { Event, Prisma, TeamMemberStatus, TeamRole } from '@prisma/client';
 import type { AuthUser } from '../auth/auth.types';
 import { Paginated } from '../common/pagination/paginated';
 import { PrismaService } from '../prisma/prisma.service';
+import { EventStatus } from './event.constants';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 
 interface ListMineParams {
   limit: number;
   cursor?: string;
-  status?: 'draft' | 'published' | 'archived';
+  status?: EventStatus;
 }
 
 interface ListPublishedParams {
@@ -46,8 +47,8 @@ export class EventsService {
           eventId: event.id,
           userId: owner.id,
           email: owner.email ?? '',
-          role: 'OWNER',
-          status: 'ACTIVE',
+          role: TeamRole.OWNER,
+          status: TeamMemberStatus.ACTIVE,
           invitedById: owner.id,
         },
       });
@@ -62,7 +63,7 @@ export class EventsService {
   ): Promise<Paginated<Event>> {
     const { limit, cursor, status } = params;
     const where: Prisma.EventWhereInput = { organizerId: userId };
-    if (status === 'archived') {
+    if (status === EventStatus.Archived) {
       where.isArchived = true;
     } else if (status) {
       where.status = status;
@@ -76,13 +77,13 @@ export class EventsService {
   ): Promise<{ draft: number; published: number; archived: number }> {
     const [draft, published, archived] = await Promise.all([
       this.prisma.event.count({
-        where: { organizerId: userId, status: 'draft' },
+        where: { organizerId: userId, status: EventStatus.Draft },
       }),
       this.prisma.event.count({
-        where: { organizerId: userId, status: 'published' },
+        where: { organizerId: userId, status: EventStatus.Published },
       }),
       this.prisma.event.count({
-        where: { organizerId: userId, status: 'archived' },
+        where: { organizerId: userId, status: EventStatus.Archived },
       }),
     ]);
     return { draft, published, archived };
@@ -119,7 +120,7 @@ export class EventsService {
   archive(id: string): Promise<Event> {
     return this.prisma.event.update({
       where: { id },
-      data: { status: 'archived', isArchived: true },
+      data: { status: EventStatus.Archived, isArchived: true },
     });
   }
 
@@ -127,7 +128,7 @@ export class EventsService {
   restore(id: string): Promise<Event> {
     return this.prisma.event.update({
       where: { id },
-      data: { status: 'draft', isArchived: false },
+      data: { status: EventStatus.Draft, isArchived: false },
     });
   }
 
@@ -141,7 +142,7 @@ export class EventsService {
   /** Published, non-archived events for public discovery. */
   listPublished(params: ListPublishedParams): Promise<Paginated<Event>> {
     return this.page(
-      { status: 'published', isArchived: false },
+      { status: EventStatus.Published, isArchived: false },
       params.limit,
       params.cursor,
     );
@@ -150,7 +151,7 @@ export class EventsService {
   /** A single published event by slug; drafts/archived are hidden behind a 404. */
   async getPublishedBySlug(slug: string): Promise<Event> {
     const event = await this.prisma.event.findUnique({ where: { slug } });
-    if (!event || event.status !== 'published' || event.isArchived) {
+    if (!event || event.status !== EventStatus.Published || event.isArchived) {
       throw new NotFoundException('Event not found');
     }
     return event;

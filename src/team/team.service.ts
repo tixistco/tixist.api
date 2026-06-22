@@ -3,7 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Invitation, TeamMember } from '@prisma/client';
+import {
+  Invitation,
+  InvitationStatus,
+  TeamMember,
+  TeamMemberStatus,
+  TeamRole,
+} from '@prisma/client';
 import type { AuthUser } from '../auth/auth.types';
 import { PermissionsService } from '../permissions/permissions.service';
 import { ModuleName } from '../permissions/permissions.types';
@@ -11,11 +17,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { generateInvitationToken, invitationExpiry } from './invitation-token';
 
 /** Human-readable reasons a non-pending invitation can't be acted on. */
-const INVITATION_STATE_MESSAGE: Record<string, string> = {
-  ACCEPTED: 'This invitation has already been accepted',
-  DECLINED: 'This invitation was declined',
-  CANCELLED: 'This invitation was cancelled by the organizer',
-  EXPIRED: 'This invitation has expired',
+const INVITATION_STATE_MESSAGE: Partial<Record<InvitationStatus, string>> = {
+  [InvitationStatus.ACCEPTED]: 'This invitation has already been accepted',
+  [InvitationStatus.DECLINED]: 'This invitation was declined',
+  [InvitationStatus.CANCELLED]:
+    'This invitation was cancelled by the organizer',
+  [InvitationStatus.EXPIRED]: 'This invitation has expired',
 };
 
 @Injectable()
@@ -28,7 +35,7 @@ export class TeamService {
   /** All members of an event's team (owner first), optionally filtered by status. */
   listMembers(
     eventId: string,
-    status?: 'PENDING' | 'ACTIVE' | 'REMOVED',
+    status?: TeamMemberStatus,
   ): Promise<TeamMember[]> {
     return this.prisma.teamMember.findMany({
       where: { eventId, ...(status && { status }) },
@@ -39,7 +46,7 @@ export class TeamService {
   /** Pending invitations for an event. */
   listPendingInvitations(eventId: string): Promise<Invitation[]> {
     return this.prisma.invitation.findMany({
-      where: { eventId, status: 'PENDING' },
+      where: { eventId, status: InvitationStatus.PENDING },
       orderBy: { sentAt: 'desc' },
     });
   }
@@ -47,7 +54,7 @@ export class TeamService {
   /** The current user's active memberships across all events. */
   listMyMemberships(userId: string): Promise<TeamMember[]> {
     return this.prisma.teamMember.findMany({
-      where: { userId, status: 'ACTIVE' },
+      where: { userId, status: TeamMemberStatus.ACTIVE },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -73,14 +80,14 @@ export class TeamService {
     const existing = await this.prisma.teamMember.findUnique({
       where: { eventId_email: { eventId, email } },
     });
-    if (existing?.status === 'ACTIVE') {
+    if (existing?.status === TeamMemberStatus.ACTIVE) {
       throw new BadRequestException(
         "This email already has an active membership. Use 'update permissions' instead.",
       );
     }
 
     const pending = await this.prisma.invitation.findFirst({
-      where: { eventId, email, status: 'PENDING' },
+      where: { eventId, email, status: InvitationStatus.PENDING },
     });
     if (pending) {
       throw new BadRequestException(
@@ -98,7 +105,7 @@ export class TeamService {
           email,
           token,
           modulePermissions: input.modulePermissions,
-          status: 'PENDING',
+          status: InvitationStatus.PENDING,
           expiresAt,
           sentById: inviter.id,
         },
@@ -108,14 +115,14 @@ export class TeamService {
         create: {
           eventId,
           email,
-          role: 'COLLABORATOR',
-          status: 'PENDING',
+          role: TeamRole.COLLABORATOR,
+          status: TeamMemberStatus.PENDING,
           modulePermissions: input.modulePermissions,
           invitedById: inviter.id,
         },
         update: {
-          role: 'COLLABORATOR',
-          status: 'PENDING',
+          role: TeamRole.COLLABORATOR,
+          status: TeamMemberStatus.PENDING,
           modulePermissions: input.modulePermissions,
           invitedById: inviter.id,
           invitedAt: new Date(),
@@ -131,7 +138,11 @@ export class TeamService {
     const invitation = await this.loadActionableInvitation(token);
 
     const alreadyActive = await this.prisma.teamMember.findFirst({
-      where: { eventId: invitation.eventId, userId: user.id, status: 'ACTIVE' },
+      where: {
+        eventId: invitation.eventId,
+        userId: user.id,
+        status: TeamMemberStatus.ACTIVE,
+      },
     });
     if (alreadyActive) {
       throw new BadRequestException(
@@ -142,7 +153,7 @@ export class TeamService {
     return this.prisma.$transaction(async (tx) => {
       await tx.invitation.update({
         where: { id: invitation.id },
-        data: { status: 'ACCEPTED', respondedAt: new Date() },
+        data: { status: InvitationStatus.ACCEPTED, respondedAt: new Date() },
       });
       const member = await tx.teamMember.findUnique({
         where: {
@@ -157,7 +168,11 @@ export class TeamService {
       }
       return tx.teamMember.update({
         where: { id: member.id },
-        data: { status: 'ACTIVE', userId: user.id, lastAccessedAt: new Date() },
+        data: {
+          status: TeamMemberStatus.ACTIVE,
+          userId: user.id,
+          lastAccessedAt: new Date(),
+        },
       });
     });
   }
@@ -168,13 +183,13 @@ export class TeamService {
     await this.prisma.$transaction(async (tx) => {
       await tx.invitation.update({
         where: { id: invitation.id },
-        data: { status: 'DECLINED', respondedAt: new Date() },
+        data: { status: InvitationStatus.DECLINED, respondedAt: new Date() },
       });
       await tx.teamMember.deleteMany({
         where: {
           eventId: invitation.eventId,
           email: invitation.email,
-          status: 'PENDING',
+          status: TeamMemberStatus.PENDING,
         },
       });
     });
@@ -189,12 +204,12 @@ export class TeamService {
     const member = await this.requireMember(teamMemberId);
     await this.permissions.checkIsOwner(member.eventId, callerId);
 
-    if (member.role === 'OWNER') {
+    if (member.role === TeamRole.OWNER) {
       throw new BadRequestException(
         "Cannot modify the owner's permissions — owners have full access",
       );
     }
-    if (member.status !== 'ACTIVE') {
+    if (member.status !== TeamMemberStatus.ACTIVE) {
       throw new BadRequestException(
         'Cannot update permissions for an inactive member',
       );
@@ -210,17 +225,17 @@ export class TeamService {
     const member = await this.requireMember(teamMemberId);
     await this.permissions.checkIsOwner(member.eventId, callerId);
 
-    if (member.role === 'OWNER') {
+    if (member.role === TeamRole.OWNER) {
       throw new BadRequestException(
         'Cannot remove the owner. Transfer ownership first.',
       );
     }
-    if (member.status === 'REMOVED') {
+    if (member.status === TeamMemberStatus.REMOVED) {
       throw new BadRequestException('This member has already been removed');
     }
     await this.prisma.teamMember.update({
       where: { id: teamMemberId },
-      data: { status: 'REMOVED' },
+      data: { status: TeamMemberStatus.REMOVED },
     });
   }
 
@@ -235,7 +250,7 @@ export class TeamService {
     if (!invitation) throw new NotFoundException('Invitation not found');
     await this.permissions.checkIsOwner(invitation.eventId, callerId);
 
-    if (invitation.status !== 'PENDING') {
+    if (invitation.status !== InvitationStatus.PENDING) {
       throw new BadRequestException(
         'Only pending invitations can be cancelled',
       );
@@ -243,13 +258,13 @@ export class TeamService {
     await this.prisma.$transaction(async (tx) => {
       await tx.invitation.update({
         where: { id: invitation.id },
-        data: { status: 'CANCELLED', respondedAt: new Date() },
+        data: { status: InvitationStatus.CANCELLED, respondedAt: new Date() },
       });
       await tx.teamMember.deleteMany({
         where: {
           eventId: invitation.eventId,
           email: invitation.email,
-          status: 'PENDING',
+          status: TeamMemberStatus.PENDING,
         },
       });
     });
@@ -265,7 +280,7 @@ export class TeamService {
     if (!invitation) {
       throw new NotFoundException('Invitation not found or invalid token');
     }
-    if (invitation.status !== 'PENDING') {
+    if (invitation.status !== InvitationStatus.PENDING) {
       throw new BadRequestException(
         INVITATION_STATE_MESSAGE[invitation.status] ??
           'This invitation is no longer valid',
@@ -274,7 +289,7 @@ export class TeamService {
     if (invitation.expiresAt < new Date()) {
       await this.prisma.invitation.update({
         where: { id: invitation.id },
-        data: { status: 'EXPIRED' },
+        data: { status: InvitationStatus.EXPIRED },
       });
       throw new BadRequestException(
         'This invitation has expired. Request a new one from the organizer.',

@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import { TeamMemberStatus, TeamRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MembershipContext, ModuleName } from './permissions.types';
 
@@ -17,12 +18,12 @@ export class PermissionsService {
     userId: string,
   ): Promise<MembershipContext> {
     const membership = await this.prisma.teamMember.findFirst({
-      where: { eventId, userId, status: 'ACTIVE' },
+      where: { eventId, userId, status: TeamMemberStatus.ACTIVE },
     });
     if (!membership) {
       throw new ForbiddenException('You do not have access to this event');
     }
-    return { membership, isOwner: membership.role === 'OWNER' };
+    return { membership, isOwner: membership.role === TeamRole.OWNER };
   }
 
   /** Owners bypass; collaborators must hold the required module. */
