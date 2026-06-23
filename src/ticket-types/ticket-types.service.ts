@@ -51,7 +51,8 @@ export class TicketTypesService {
       where: { eventId },
       orderBy: { createdAt: 'asc' },
     });
-    return Promise.all(tiers.map((t) => this.withAvailability(t)));
+    const sold = await this.soldCountsFor(tiers.map((t) => t.id));
+    return tiers.map((t) => this.toAvailability(t, sold.get(t.id) ?? 0));
   }
 
   /** A single tier with availability; caller must be a member of its event. */
@@ -61,7 +62,7 @@ export class TicketTypesService {
   ): Promise<TicketTypeWithAvailability> {
     const tier = await this.requireTier(id);
     await this.permissions.checkEventAccess(tier.eventId, callerId);
-    return this.withAvailability(tier);
+    return this.toAvailability(tier, await this.soldCount(tier.id));
   }
 
   /** Update a tier (TICKETS module). Inventory/price guards key off the sold count. */
@@ -133,39 +134,48 @@ export class TicketTypesService {
   async listPublicBySlug(slug: string): Promise<TicketTypeWithAvailability[]> {
     const event = await this.prisma.event.findUnique({
       where: { slug },
-      select: { id: true, status: true, isArchived: true },
+      select: {
+        id: true,
+        status: true,
+        isArchived: true,
+        ticketTypes: { orderBy: { createdAt: 'asc' } },
+      },
     });
     if (!event || event.status !== EventStatus.Published || event.isArchived) {
       throw new NotFoundException('Event not found');
     }
+    const sold = await this.soldCountsFor(event.ticketTypes.map((t) => t.id));
     const now = new Date();
-    const tiers = await this.prisma.ticketType.findMany({
-      where: { eventId: event.id },
-      orderBy: { createdAt: 'asc' },
-    });
-    const withAvailability = await Promise.all(
-      tiers.map((t) => this.withAvailability(t)),
-    );
-    return withAvailability.filter(
-      (t) =>
-        t.available > 0 &&
-        (!t.saleStart || t.saleStart <= now) &&
-        (!t.saleEnd || t.saleEnd >= now),
-    );
+    return event.ticketTypes
+      .map((t) => this.toAvailability(t, sold.get(t.id) ?? 0))
+      .filter(
+        (t) =>
+          t.available > 0 &&
+          (!t.saleStart || t.saleStart <= now) &&
+          (!t.saleEnd || t.saleEnd >= now),
+      );
   }
 
   // --- helpers ---
 
   /**
-   * Sold count for a tier = SUM of its registration quantities (cancelling a
-   * registration hard-deletes the row, freeing the slot).
+   * Sold counts for many tiers in a single query, keyed by tier id. Sold = SUM of a
+   * tier's registration quantities (cancelling hard-deletes the row, freeing the slot).
+   * Returns an empty map for no ids (skips the query).
    */
-  private async soldCount(tierId: string): Promise<number> {
-    const { _sum } = await this.prisma.registration.aggregate({
-      where: { ticketTypeId: tierId },
+  private async soldCountsFor(tierIds: string[]): Promise<Map<string, number>> {
+    if (tierIds.length === 0) return new Map();
+    const groups = await this.prisma.registration.groupBy({
+      by: ['ticketTypeId'],
+      where: { ticketTypeId: { in: tierIds } },
       _sum: { quantity: true },
     });
-    return _sum.quantity ?? 0;
+    return new Map(groups.map((g) => [g.ticketTypeId, g._sum.quantity ?? 0]));
+  }
+
+  /** Sold count for a single tier (via the batched query). */
+  private async soldCount(tierId: string): Promise<number> {
+    return (await this.soldCountsFor([tierId])).get(tierId) ?? 0;
   }
 
   private async requireTier(id: string): Promise<TicketType> {
@@ -174,10 +184,10 @@ export class TicketTypesService {
     return tier;
   }
 
-  private async withAvailability(
+  private toAvailability(
     tier: TicketType,
-  ): Promise<TicketTypeWithAvailability> {
-    const sold = await this.soldCount(tier.id);
+    sold: number,
+  ): TicketTypeWithAvailability {
     return { ...tier, sold, available: tier.quantity - sold };
   }
 

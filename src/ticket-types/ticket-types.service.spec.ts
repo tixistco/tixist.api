@@ -12,9 +12,9 @@ function setup() {
       delete: jest.fn(),
     },
     event: { findUnique: jest.fn() },
-    // soldCount() aggregates registration quantities; default to none sold.
+    // soldCountsFor() groups registration quantities by tier; default to none sold.
     registration: {
-      aggregate: jest.fn(() => Promise.resolve({ _sum: { quantity: 0 } })),
+      groupBy: jest.fn(() => Promise.resolve([])),
     },
   } as any;
   const permissions = {
@@ -184,23 +184,56 @@ describe('TicketTypesService', () => {
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
-    it('lists availability for a published event', async () => {
+    it('lists availability for a published event (tiers come from the event query)', async () => {
       c.prisma.event.findUnique.mockResolvedValue({
         id: 'e1',
         status: 'published',
         isArchived: false,
+        ticketTypes: [
+          {
+            id: 't1',
+            eventId: 'e1',
+            quantity: 10,
+            saleStart: null,
+            saleEnd: null,
+          },
+        ],
       });
-      c.prisma.ticketType.findMany.mockResolvedValue([
-        {
-          id: 't1',
-          eventId: 'e1',
-          quantity: 10,
-          saleStart: null,
-          saleEnd: null,
-        },
-      ]);
       const items = await c.service.listPublicBySlug('conf-2026');
       expect(items[0]).toMatchObject({ id: 't1', available: 10 });
+    });
+
+    it('subtracts sold quantities and queries sold-counts only once', async () => {
+      c.prisma.event.findUnique.mockResolvedValue({
+        id: 'e1',
+        status: 'published',
+        isArchived: false,
+        ticketTypes: [
+          {
+            id: 't1',
+            eventId: 'e1',
+            quantity: 10,
+            saleStart: null,
+            saleEnd: null,
+          },
+          {
+            id: 't2',
+            eventId: 'e1',
+            quantity: 5,
+            saleStart: null,
+            saleEnd: null,
+          },
+        ],
+      });
+      c.prisma.registration.groupBy.mockResolvedValue([
+        { ticketTypeId: 't1', _sum: { quantity: 7 } },
+      ]);
+      const items = await c.service.listPublicBySlug('conf-2026');
+      expect(items).toMatchObject([
+        { id: 't1', sold: 7, available: 3 },
+        { id: 't2', sold: 0, available: 5 },
+      ]);
+      expect(c.prisma.registration.groupBy).toHaveBeenCalledTimes(1);
     });
   });
 });
