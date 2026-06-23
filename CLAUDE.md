@@ -13,7 +13,7 @@ that contract**, not improvised.
   header redaction. Log via the injected `Logger`/`PinoLogger` from `nestjs-pino`, never `console`.
 - **Database (wired):** Prisma 6 + PostgreSQL. Global `PrismaModule`/`PrismaService`
   (`src/prisma/`); schema at `prisma/schema.prisma` grows **incrementally per feature slice**
-  (`User`, `Event`, `TeamMember`, `Invitation`, `TicketType`, `Registration`, `Ticket` so far). `DATABASE_URL` is **composed** from `DB_*` parts via dotenv expansion
+  (`User`, `Event`, `TeamMember`, `Invitation`, `TicketType`, `Registration`, `Ticket`, `Attendee` so far). `DATABASE_URL` is **composed** from `DB_*` parts via dotenv expansion
   (`expandVariables: true`); edit the parts, not the URL. After schema changes run
   `yarn db:migrate` (dev) and `yarn db:generate`.
 - **Auth (wired):** email+password register/login → JWT **access + refresh** (rotation;
@@ -78,9 +78,19 @@ that contract**, not improvised.
   this; image rendering is a client concern). Reads: organizer list (`@RequireModule('ATTENDEES')`)
   at `/events/{eventId}/tickets` (filter tier/assigned/checked-in), get at `/tickets/{id}` (event
   access), public lookup at `/public/tickets/{ticketNumber}` (the number is the holder's credential).
-  Deferred: optimistic-locked **assignment** to an attendee + cutoff gating (Attendees slice adds the
-  `attendeeId` FK), **check-in** (CheckIn slice), QR-image rendering — those columns exist but are
-  unwired. Inventory `soldCount` stays registration-based (1:1 with tickets, so equal).
+  **Assignment** lives here too: `POST`/`DELETE /tickets/{id}/assignee` (see Attendees). Deferred:
+  **check-in** (CheckIn slice), QR-image rendering. Inventory `soldCount` stays registration-based
+  (1:1 with tickets, so equal).
+- **Attendees (wired):** the person who attends (distinct from the buyer), 1:1 with a `Ticket`, in
+  `src/attendees/`. Created on **ticket assignment** (`TicketsService.assign`/`unassign`): authz is
+  buyer-or-`TICKETS`; **cutoff-gated** (`events/assignment-cutoff.ts` from the event's
+  `assignmentCutoff*`), **optimistic-locked** on the ticket's `updatedAt` via `expectedUpdatedAt`
+  (409 on mismatch), and `customData` is validated against the event's `customFields`
+  (`events/custom-fields.ts` — required + option membership). Reassignment replaces the attendee;
+  unassign is blocked once checked in and deletes the attendee. Reads: organizer list
+  (`@RequireModule('ATTENDEES')`) at `/events/{eventId}/attendees` (filter `emailStatus` + name/email
+  search, scoped via the 1:1 ticket), get at `/attendees/{id}`. Deferred: CSV import/export,
+  email-status webhook, attendee-update endpoint, assignment emails, advanced custom-field rules.
 - **Users / `/me` (wired):** the authenticated caller's own profile — `GET /me` (profile),
   `PATCH /me` (update name/email/image; email change checks uniqueness, resets `emailVerified`,
   and evicts the auth cache), `POST /me/change-password` (verifies current password). Source in
@@ -193,7 +203,8 @@ src/
   events/                # organizer CRUD + status flow + public discovery (/public/events)
   ticket-types/          # purchasable tiers (BigInt price); event-scoped + flat + public
   registrations/         # concurrency-safe self-registration (FOR UPDATE) + organizer list/cancel
-  tickets/               # admission tickets: issuance (on registration), identity, list/get/lookup
+  tickets/               # admission tickets: issuance, identity, list/get/lookup, assign/unassign
+  attendees/             # attendee (1:1 ticket); list/get — created via ticket assignment
   permissions/           # event RBAC: PermissionsService + EventAccess/Module/Owner guards
   team/                  # team membership + invitation lifecycle (invite/accept/decline/manage)
   common/                # @Public()/@CurrentUser() decorators + JwtAuthGuard

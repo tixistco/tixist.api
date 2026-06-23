@@ -74,10 +74,16 @@ The purchase path. Registration is the concurrency-critical flow (row-lock, no o
   the same locked transaction (`ticketNumber` + high-entropy `qrCodeData`). Reads: organizer list
   (`@RequireModule('ATTENDEES')`) at `/events/{eventId}/tickets` (filter by tier/assigned/checked-in),
   get at `/tickets/{id}` (event access), public lookup at `/public/tickets/{ticketNumber}`. Register
-  now returns the order **plus its tickets**. Deferred: optimistic-locked **assignment** to an
-  attendee + cutoff gating (Attendees slice — adds the `attendeeId` FK), **check-in** (CheckIn slice),
-  and QR-image rendering. The assignment/check-in columns exist now but aren't wired.
-- ⬜ **Attendees** — custom-field responses, email state, CSV import, list export
+  now returns the order **plus its tickets**. Assignment (optimistic-locked, cutoff-gated) landed in
+  the Attendees slice. Deferred: **check-in** (CheckIn slice) and QR-image rendering.
+- 🟡 **Attendees** — `Attendee` model (1:1 with `Ticket`); wires the deferred `Ticket.attendee` FK.
+  Ticket **assignment**: `POST`/`DELETE /tickets/{id}/assignee` — buyer-or-`TICKETS` authz, **cutoff-gated**
+  (`assignment-cutoff.ts`), **optimistic-locked** on `expectedUpdatedAt` (409 on mismatch),
+  **custom-field validation** (`custom-fields.ts`: required + option membership); reassignment replaces
+  the attendee, unassign blocked once checked in. Reads: organizer list (`@RequireModule('ATTENDEES')`)
+  at `/events/{eventId}/attendees` (filter email-status + name/email search), get at `/attendees/{id}`.
+  Deferred: CSV import/export, email-status webhook, attendee-update endpoint, assignment emails,
+  advanced custom-field rules (regex/length/selection counts).
 
 ---
 

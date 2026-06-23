@@ -35,6 +35,9 @@ model User {
   // Registrations made while authenticated (optional link)
   registrations Registration[]
 
+  // Attendee profiles linked while authenticated (optional)
+  attendees Attendee[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -178,10 +181,11 @@ model Ticket {
   ticketNumber String @unique // human-readable, e.g. TKT-<ts>-<rand>
   qrCodeData   String @unique // high-entropy QR payload
 
-  // Assignment (wired in the Attendees slice; attendee FK added then)
+  // Assignment to an attendee (1:1)
   isAssigned Boolean   @default(false)
   assignedAt DateTime?
   attendeeId String?   @unique
+  attendee   Attendee? @relation(fields: [attendeeId], references: [id], onDelete: SetNull)
 
   // Check-in (wired in the CheckIn slice)
   isCheckedIn Boolean   @default(false)
@@ -198,6 +202,30 @@ model Ticket {
   @@index([qrCodeData])
   @@index([eventId, isCheckedIn])
   @@index([eventId, isAssigned])
+}
+
+/// The person who will attend (distinct from the buyer/registrant), 1:1 with a `Ticket`.
+/// Holds custom-field answers (validated against the event's `customFields`) and email
+/// deliverability state. Created on ticket assignment; deleted on unassignment/reassignment.
+model Attendee {
+  id    String @id @default(cuid())
+  name  String
+  email String
+
+  customData  Json? // CustomFieldResponses — answers keyed by field id
+  emailStatus String @default("active") // active | bounced | unsubscribed
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  ticket Ticket? // 1:1 back-reference
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([userId])
+  @@index([emailStatus])
 }
 
 enum TeamRole {
