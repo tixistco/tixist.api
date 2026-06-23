@@ -30,13 +30,16 @@ Cross-cutting infrastructure every feature builds on.
 
 Establishes the user surface, the core `Event` resource, and the RBAC that gates everything after.
 
-- 🟡 **Users / `/me`** — `GET`/`PATCH /me`, `POST /me/change-password` done.
-  Deferred (need Event/Registration): `DELETE /me`, `GET /me/events-summary`, profile event/attendee counts.
+- 🟡 **Users / `/me`** — `GET`/`PATCH /me` (profile now includes `eventCount`/`registrationCount`),
+  `POST /me/change-password`, `GET /me/events-summary` (total/active/archived events + total attendees).
+  Deferred: `DELETE /me` — account deletion is its own slice (the `Restrict` FKs on `Event.organizer`,
+  `TeamMember.invitedBy` and `Invitation.sentBy` need a transfer/cascade story, not just a count).
 - 🟡 **Events** — `Event` model + organizer CRUD (create/list-mine/status-counts/get/update/delete),
   `draft → published → archived` flow (`archive`/`restore`), custom fields, and a public discovery
   surface (`/public/events`, `/public/events/{slug}` — published only). Ownership is an `organizerId`
-  check for now (swaps to RBAC guards in the next slice). Deferred: `GET /events/{id}/metrics` and
-  list relation-counts (need ticketing/registration models). _Unblocks most later modules._
+  check for now (swaps to RBAC guards in the next slice). `GET /events/{id}/metrics` (member) rolls
+  up registrations/tickets/assignment/check-in. Deferred: per-event list relation-counts (low value —
+  `metrics` covers it). _Unblocks most later modules._
 - 🟡 **Team + RBAC (`PermissionsModule`)** — `TeamMember`/`Invitation` models + enums; the three
   guards (`EventAccessGuard`, `ModuleGuard`+`@RequireModule(...)`, `OwnerGuard`) + `@CurrentMembership()`.
   Event creation now writes an `ACTIVE`/`OWNER` `TeamMember` (existing events backfilled in the

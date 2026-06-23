@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { AuthUserService } from '../auth/auth-user.service';
 import { HashingService } from '../auth/hashing.service';
+import { EventStatus } from '../events/event.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -26,6 +27,20 @@ export type UserProfile = Prisma.UserGetPayload<{
   select: typeof PROFILE_SELECT;
 }>;
 
+/** Profile plus rollups: events organized and registrations made. */
+export type UserProfileWithCounts = UserProfile & {
+  eventCount: number;
+  registrationCount: number;
+};
+
+/** Organizer dashboard rollup across the user's events. */
+export interface EventsSummary {
+  totalEvents: number;
+  activeEvents: number;
+  archivedEvents: number;
+  totalAttendees: number;
+}
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -34,14 +49,44 @@ export class UsersService {
     private readonly authUser: AuthUserService,
   ) {}
 
-  /** The current user's own profile. */
-  async getProfile(userId: string): Promise<UserProfile> {
+  /** The current user's own profile, with event/registration counts. */
+  async getProfile(userId: string): Promise<UserProfileWithCounts> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: PROFILE_SELECT,
+      select: {
+        ...PROFILE_SELECT,
+        _count: { select: { events: true, registrations: true } },
+      },
     });
     if (!user) throw new NotFoundException('User not found');
-    return user;
+    const { _count, ...profile } = user;
+    return {
+      ...profile,
+      eventCount: _count.events,
+      registrationCount: _count.registrations,
+    };
+  }
+
+  /** Rollup of the user's events for their dashboard. */
+  async eventsSummary(userId: string): Promise<EventsSummary> {
+    const [totalEvents, activeEvents, archivedEvents, totalAttendees] =
+      await Promise.all([
+        this.prisma.event.count({ where: { organizerId: userId } }),
+        this.prisma.event.count({
+          where: {
+            organizerId: userId,
+            isArchived: false,
+            status: EventStatus.Published,
+          },
+        }),
+        this.prisma.event.count({
+          where: { organizerId: userId, isArchived: true },
+        }),
+        this.prisma.attendee.count({
+          where: { ticket: { event: { organizerId: userId } } },
+        }),
+      ]);
+    return { totalEvents, activeEvents, archivedEvents, totalAttendees };
   }
 
   /**

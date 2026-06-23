@@ -16,6 +16,9 @@ function setup() {
       delete: jest.fn(),
       count: jest.fn(),
     },
+    registration: { count: jest.fn() },
+    ticket: { count: jest.fn() },
+    ticketType: { count: jest.fn() },
     $transaction: jest.fn((cb: any) => cb(tx)),
   } as any;
   const service = new EventsService(prisma);
@@ -131,6 +134,25 @@ describe('EventsService', () => {
         draft: 3,
         published: 2,
         archived: 1,
+      });
+    });
+  });
+
+  describe('metrics', () => {
+    it('rolls up registrations, tickets, assignment and check-in', async () => {
+      c.prisma.registration.count.mockResolvedValue(12);
+      c.prisma.ticket.count
+        .mockResolvedValueOnce(20) // total tickets
+        .mockResolvedValueOnce(15) // assigned
+        .mockResolvedValueOnce(9); // checked in
+      c.prisma.ticketType.count.mockResolvedValue(3);
+
+      await expect(c.service.metrics('e1')).resolves.toEqual({
+        totalRegistrations: 12,
+        totalTickets: 20,
+        assignedTickets: 15,
+        checkedInTickets: 9,
+        ticketTypeCount: 3,
       });
     });
   });

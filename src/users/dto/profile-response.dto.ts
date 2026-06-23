@@ -18,3 +18,27 @@ export class ProfileResponseDto {
   /** Account creation timestamp. */
   createdAt!: Date;
 }
+
+/** Profile plus rollups (returned by `GET /me`). */
+export class ProfileWithCountsDto extends ProfileResponseDto {
+  /** How many events the user organizes. */
+  eventCount!: number;
+
+  /** How many registrations the user has made. */
+  registrationCount!: number;
+}
+
+/** Organizer rollup across the user's events (`GET /me/events-summary`). */
+export class EventsSummaryDto {
+  /** All events the user organizes. */
+  totalEvents!: number;
+
+  /** Published, non-archived events. */
+  activeEvents!: number;
+
+  /** Archived events. */
+  archivedEvents!: number;
+
+  /** Total attendees across the user's events. */
+  totalAttendees!: number;
+}

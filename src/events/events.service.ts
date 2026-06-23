@@ -22,6 +22,15 @@ interface ListPublishedParams {
   cursor?: string;
 }
 
+/** Dashboard rollup for a single event. */
+export interface EventMetrics {
+  totalRegistrations: number;
+  totalTickets: number;
+  assignedTickets: number;
+  checkedInTickets: number;
+  ticketTypeCount: number;
+}
+
 @Injectable()
 export class EventsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -69,6 +78,30 @@ export class EventsService {
       where.status = status;
     }
     return this.page(where, limit, cursor);
+  }
+
+  /** Dashboard metrics for one event (registrations, tickets, assignment, check-in). */
+  async metrics(id: string): Promise<EventMetrics> {
+    const [
+      totalRegistrations,
+      totalTickets,
+      assignedTickets,
+      checkedInTickets,
+      ticketTypeCount,
+    ] = await Promise.all([
+      this.prisma.registration.count({ where: { eventId: id } }),
+      this.prisma.ticket.count({ where: { eventId: id } }),
+      this.prisma.ticket.count({ where: { eventId: id, isAssigned: true } }),
+      this.prisma.ticket.count({ where: { eventId: id, isCheckedIn: true } }),
+      this.prisma.ticketType.count({ where: { eventId: id } }),
+    ]);
+    return {
+      totalRegistrations,
+      totalTickets,
+      assignedTickets,
+      checkedInTickets,
+      ticketTypeCount,
+    };
   }
 
   /** Counts of the caller's events grouped by status. */

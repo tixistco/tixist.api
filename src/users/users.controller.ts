@@ -8,9 +8,17 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ApiTag } from '../openapi/api-tags';
 import type { AuthUser } from '../auth/auth.types';
 import { ChangePasswordDto } from './dto/change-password.dto';
-import { ProfileResponseDto } from './dto/profile-response.dto';
+import {
+  EventsSummaryDto,
+  ProfileResponseDto,
+  ProfileWithCountsDto,
+} from './dto/profile-response.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
-import { UsersService } from './users.service';
+import {
+  EventsSummary,
+  UserProfileWithCounts,
+  UsersService,
+} from './users.service';
 
 @ApiTags(ApiTag.Users)
 @ApiBearerAuth()
@@ -23,10 +31,23 @@ export class UsersController {
    * @remarks Returns the authenticated caller's own account details.
    */
   @Get()
-  @ApiStandardResponse(ProfileResponseDto, { description: 'The current user' })
+  @ApiStandardResponse(ProfileWithCountsDto, {
+    description: 'The current user (with event/registration counts)',
+  })
   @ApiProblemResponse(401, 'Missing/invalid access token')
-  getProfile(@CurrentUser() user: AuthUser): Promise<ProfileResponseDto> {
+  getProfile(@CurrentUser() user: AuthUser): Promise<UserProfileWithCounts> {
     return this.users.getProfile(user.id);
+  }
+
+  /**
+   * Summary of the current user's events.
+   * @remarks Totals for all/active/archived events plus total attendees across them.
+   */
+  @Get('events-summary')
+  @ApiStandardResponse(EventsSummaryDto, { description: 'Events rollup' })
+  @ApiProblemResponse(401, 'Missing/invalid access token')
+  eventsSummary(@CurrentUser() user: AuthUser): Promise<EventsSummary> {
+    return this.users.eventsSummary(user.id);
   }
 
   /**

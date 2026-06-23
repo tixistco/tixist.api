@@ -69,3 +69,21 @@ export class EventStatusCountsDto {
   /** Number of archived events. */
   archived!: number;
 }
+
+/** Dashboard metrics for a single event. */
+export class EventMetricsDto {
+  /** Total registrations (orders). */
+  totalRegistrations!: number;
+
+  /** Total tickets issued. */
+  totalTickets!: number;
+
+  /** Tickets assigned to an attendee. */
+  assignedTickets!: number;
+
+  /** Tickets checked in. */
+  checkedInTickets!: number;
+
+  /** Number of ticket tiers. */
+  ticketTypeCount!: number;
+}

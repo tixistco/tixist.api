@@ -24,12 +24,13 @@ import { EventAccessGuard, OwnerGuard } from '../permissions/event-rbac.guards';
 import { ApiTag } from '../openapi/api-tags';
 import { CreateEventDto } from './dto/create-event.dto';
 import {
+  EventMetricsDto,
   EventResponseDto,
   EventStatusCountsDto,
 } from './dto/event-response.dto';
 import { ListEventsQuery } from './dto/list-events.query';
 import { UpdateEventDto } from './dto/update-event.dto';
-import { EventsService } from './events.service';
+import { EventMetrics, EventsService } from './events.service';
 
 const DEFAULT_LIMIT = 20;
 
@@ -99,6 +100,18 @@ export class EventsController {
   @ApiProblemResponse(404, 'Event not found')
   getById(@Param('id') id: string): Promise<Event> {
     return this.events.findById(id);
+  }
+
+  /**
+   * Dashboard metrics for an event.
+   * @remarks Any active member may view: registration, ticket, assignment and check-in rollups.
+   */
+  @Get(':id/metrics')
+  @UseGuards(EventAccessGuard)
+  @ApiStandardResponse(EventMetricsDto, { description: 'Event metrics' })
+  @ApiProblemResponse(403, 'Not a member of this event')
+  metrics(@Param('id') id: string): Promise<EventMetrics> {
+    return this.events.metrics(id);
   }
 
   /**

@@ -13,6 +13,8 @@ function setup() {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
+    event: { count: jest.fn() },
+    attendee: { count: jest.fn() },
   } as any;
   const hashing = { hash: jest.fn(), compare: jest.fn() } as any;
   const authUser = { evict: jest.fn() } as any;
@@ -27,21 +29,25 @@ describe('UsersService', () => {
   });
 
   describe('getProfile', () => {
-    it('returns the current user profile', async () => {
-      const profile = {
+    it('returns the profile with flattened event/registration counts', async () => {
+      c.prisma.user.findUnique.mockResolvedValue({
         id: 'u1',
         email: 'a@b.com',
         name: 'Ada',
         image: null,
         emailVerified: null,
         createdAt: new Date('2026-01-01'),
-      };
-      c.prisma.user.findUnique.mockResolvedValue(profile);
+        _count: { events: 2, registrations: 5 },
+      });
 
-      await expect(c.service.getProfile('u1')).resolves.toEqual(profile);
-      expect(c.prisma.user.findUnique).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'u1' } }),
-      );
+      const profile = await c.service.getProfile('u1');
+
+      expect(profile).toMatchObject({
+        id: 'u1',
+        eventCount: 2,
+        registrationCount: 5,
+      });
+      expect(profile).not.toHaveProperty('_count');
     });
 
     it('throws when the user no longer exists', async () => {
@@ -49,6 +55,23 @@ describe('UsersService', () => {
       await expect(c.service.getProfile('gone')).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+  });
+
+  describe('eventsSummary', () => {
+    it('rolls up totals/active/archived events and attendees', async () => {
+      c.prisma.event.count
+        .mockResolvedValueOnce(4) // total
+        .mockResolvedValueOnce(2) // active (published, not archived)
+        .mockResolvedValueOnce(1); // archived
+      c.prisma.attendee.count.mockResolvedValue(37);
+
+      await expect(c.service.eventsSummary('u1')).resolves.toEqual({
+        totalEvents: 4,
+        activeEvents: 2,
+        archivedEvents: 1,
+        totalAttendees: 37,
+      });
     });
   });
 

@@ -39,8 +39,8 @@ that contract**, not improvised.
   `/public/events/{slug}` (`@Public()`, published & non-archived only). Source in `src/events/`.
   Event-scoped routes are RBAC-guarded: read = any active member (`EventAccessGuard`), mutate =
   owner (`OwnerGuard`). Creating an event also writes the creator's `ACTIVE`/`OWNER` `TeamMember`
-  in the same transaction. Deferred: `GET /events/{id}/metrics` and list relation-counts (need
-  ticketing/registration models).
+  in the same transaction. `GET /events/{id}/metrics` (member) rolls up registrations/tickets/
+  assignment/check-in. Deferred: per-event list relation-counts (low value — `metrics` covers it).
 - **Team & RBAC (wired):** event-scoped authorization in `src/permissions/` — `PermissionsService`
   (`checkEventAccess`/`checkModuleAccess`/`checkIsOwner`) behind three guards: `EventAccessGuard`
   (active member), `ModuleGuard` + `@RequireModule(ModuleName)` (owners bypass, collaborators need
@@ -101,9 +101,11 @@ that contract**, not improvised.
   email-status webhook, attendee-update endpoint, assignment emails, advanced custom-field rules.
 - **Users / `/me` (wired):** the authenticated caller's own profile — `GET /me` (profile),
   `PATCH /me` (update name/email/image; email change checks uniqueness, resets `emailVerified`,
-  and evicts the auth cache), `POST /me/change-password` (verifies current password). Source in
-  `src/users/`. `DELETE /me` and `GET /me/events-summary` (and the profile event/attendee counts)
-  are **deferred** until the Events/Registration models land — they depend on event ownership data.
+  and evicts the auth cache), `POST /me/change-password`. `GET /me` includes `eventCount`/
+  `registrationCount`; `GET /me/events-summary` rolls up total/active/archived events + total
+  attendees. Source in `src/users/`. `DELETE /me` is **deferred** to its own slice — account
+  deletion needs a transfer/cascade story for the `Restrict` FKs (`Event.organizer`,
+  `TeamMember.invitedBy`, `Invitation.sentBy`), not just an active-events count.
 - **Status:** early build. Scaffold + design docs are in place; remaining feature modules are
   being implemented. Treat anything marked _(planned)_ in the docs as not-yet-wired.
 - **Source of truth for endpoints:** [`docs/openapi.yaml`](./docs/openapi.yaml) — 105 REST
