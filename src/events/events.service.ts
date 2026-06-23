@@ -151,7 +151,7 @@ export class EventsService {
   /** A single published event by slug; drafts/archived are hidden behind a 404. */
   async getPublishedBySlug(slug: string): Promise<Event> {
     const event = await this.prisma.event.findUnique({ where: { slug } });
-    if (!event || event.status !== EventStatus.Published || event.isArchived) {
+    if (event?.status !== EventStatus.Published || event.isArchived) {
       throw new NotFoundException('Event not found');
     }
     return event;

@@ -141,7 +141,7 @@ export class TicketTypesService {
         ticketTypes: { orderBy: { createdAt: 'asc' } },
       },
     });
-    if (!event || event.status !== EventStatus.Published || event.isArchived) {
+    if (event?.status !== EventStatus.Published || event.isArchived) {
       throw new NotFoundException('Event not found');
     }
     const sold = await this.soldCountsFor(event.ticketTypes.map((t) => t.id));

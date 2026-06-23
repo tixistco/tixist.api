@@ -65,11 +65,7 @@ export class RegistrationsService {
           maxTicketsPerPurchase: true,
         },
       });
-      if (
-        !event ||
-        event.status !== EventStatus.Published ||
-        event.isArchived
-      ) {
+      if (event?.status !== EventStatus.Published || event.isArchived) {
         throw new NotFoundException('Event not found');
       }
 
